@@ -153,7 +153,7 @@ class TestSetupFeatureSelection:
         original_filter = xgboost_evaluator.filter_invalid_labels
         original_split = xgboost_evaluator.split_dataset
         xgboost_evaluator.filter_invalid_labels = lambda ds, label_col: ds
-        xgboost_evaluator.split_dataset = lambda ds, val_size, test_size, seed: (
+        xgboost_evaluator.split_dataset = lambda ds, val_size, test_size, seed, **_: (
             ds,
             None,
             None,
@@ -188,7 +188,7 @@ class TestSetupFeatureSelection:
         original_filter = xgboost_evaluator.filter_invalid_labels
         original_split = xgboost_evaluator.split_dataset
         xgboost_evaluator.filter_invalid_labels = lambda ds, label_col: ds
-        xgboost_evaluator.split_dataset = lambda ds, val_size, test_size, seed: (
+        xgboost_evaluator.split_dataset = lambda ds, val_size, test_size, seed, **_: (
             ds,
             None,
             None,

@@ -26,6 +26,7 @@ from tributo.exceptions import (  # noqa: E402
     JobSubmissionError,
     JobTimeoutError,
     ModelExportError,
+    TrainingDataError,
     TributoError,
 )
 from tributo.job import RayJob, TributoClient  # noqa: E402
@@ -42,6 +43,7 @@ __all__: list[str] = [
     "JobConfigurationError",
     "JobTimeoutError",
     "ModelExportError",
+    "TrainingDataError",
     "DataSourceError",
     "EmptyDatasetError",
 ]

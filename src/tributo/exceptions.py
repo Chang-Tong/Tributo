@@ -42,6 +42,11 @@ class ModelExportError(TributoError):
 
 
 @PublicAPI(stability="stable")
+class TrainingDataError(TributoError):
+    """Training data cannot satisfy the configured split/worker semantics."""
+
+
+@PublicAPI(stability="stable")
 class DataSourceError(TributoError):
     """Raised when data source I/O operations fail.
 

@@ -11,6 +11,7 @@ from tributo.exceptions import (
     JobSubmissionError,
     JobTimeoutError,
     ModelExportError,
+    TrainingDataError,
     TributoError,
 )
 
@@ -64,6 +65,12 @@ def test_model_export_error():
     error = ModelExportError("Export failed")
     assert isinstance(error, TributoError)
     assert str(error) == "Export failed"
+
+
+def test_training_data_error_is_exported_from_top_level() -> None:
+    from tributo import TrainingDataError as ExportedTrainingDataError
+
+    assert ExportedTrainingDataError is TrainingDataError
 
 
 def test_datasource_error():

@@ -54,3 +54,12 @@ def test_no_context_keeps_ordinary_training_unchanged() -> None:
         ExecutionContext, "from_environment", return_value=ExecutionContext()
     ):
         assert _resolve_worker_cancellation() == (None, None)
+
+
+def test_worker_checker_construction_failure_is_fail_open() -> None:
+    context = MagicMock(spec=ExecutionContext)
+    context.cancellation = MagicMock(job_id="job-cancel")
+    context.build_cancellation_checker.side_effect = RuntimeError("bad checker")
+
+    with patch.object(ExecutionContext, "from_environment", return_value=context):
+        assert _resolve_worker_cancellation() == (None, None)
