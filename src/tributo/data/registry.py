@@ -17,6 +17,8 @@ _REGISTRY_LOCK = threading.Lock()
 
 # Known optional connectors with install hints.
 _OPTIONAL_CONNECTORS: dict[str, str] = {
+    "clickhouse": "pip install 'tributo[clickhouse]'",
+    "hive": "pip install 'tributo[hive]'",
     "iceberg": "uv sync --extra data",
     "lance": "uv sync --extra data",
 }

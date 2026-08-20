@@ -50,6 +50,11 @@ class DataSourceError(TributoError):
     """
 
 
+@PublicAPI(stability="stable")
+class EmptyDatasetError(DataSourceError):
+    """Raised when a configured training data query returns no rows."""
+
+
 # ── Inference exceptions (compatible with inference-protocol §5.5) ────────
 
 

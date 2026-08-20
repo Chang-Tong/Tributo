@@ -20,6 +20,10 @@ from tributo.exceptions import JobConfigurationError
 logger = logging.getLogger(__name__)
 
 # Trigger built-in connector registration (must be after registry import).
+# Database drivers are imported lazily by their connector operations.
+import tributo.data.clickhouse  # noqa: E402, F401, I001
+import tributo.data.hive  # noqa: E402, F401, I001
+
 # iceberg/lance are optional dependencies — skip registration when not installed.
 try:
     import tributo.data.iceberg  # noqa: F401, I001
@@ -31,7 +35,11 @@ except ImportError:
     pass
 import tributo.data.parquet  # noqa: E402, F401, I001
 from tributo.data.base import DataConnector, S3Config, WriteMode  # noqa: E402
-from tributo.data.registry import get_connector, list_connectors, register_connector  # noqa: E402
+from tributo.data.registry import (  # noqa: E402
+    get_connector,
+    list_connectors,
+    register_connector,
+)
 
 __all__ = [
     # Abstract base classes and config

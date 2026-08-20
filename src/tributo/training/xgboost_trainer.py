@@ -31,8 +31,23 @@ class DataConfig(BaseModel):
     """Data source configuration."""
 
     type: str = Field(
-        default="csv", description="Data source type: csv | s3 | clickhouse"
+        default="csv", description="Data source type: csv | s3 | clickhouse | hive"
     )
+    # Canonical database fields are interpreted according to ``type``. The
+    # prefixed ch_*/hive_* forms remain supported for backwards compatibility.
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: str | None = None
+    sql: str | None = None
+    params: dict[str, Any] | None = None
+    sort_key: str | None = None
+    parallelism: int | None = None
+    batch_size: int | None = None
+    shard_mode: str | None = None
+    hash_column: str | None = None
+    hash_shards: int | None = None
     path: Optional[str] = Field(default=None, description="Local data path")
     uri: Optional[str] = Field(default=None, description="S3 URI")
     format: str = Field(default="parquet", description="Data format: csv | parquet")
@@ -49,7 +64,22 @@ class DataConfig(BaseModel):
     ch_user: str = "default"
     ch_password: str = ""
     ch_sql: str = ""
-    ch_sql_params: dict[str, str] = Field(default_factory=dict)
+    ch_sql_params: dict[str, Any] = Field(default_factory=dict)
+    ch_sort_key: str | None = None
+    ch_parallelism: int | None = None
+    # ── HiveServer2 ──
+    hive_host: str = ""
+    hive_port: int = 10000
+    hive_database: str = "default"
+    hive_user: str = "default"
+    hive_password: str = ""
+    hive_sql: str = ""
+    hive_sql_params: dict[str, Any] = Field(default_factory=dict)
+    hive_batch_size: int = 10_000
+    hive_shard_mode: str = "auto"
+    hive_hash_column: str | None = None
+    hive_hash_shards: int = 64
+    hive_parallelism: int | None = None
 
 
 class ModelConfig(BaseModel):
@@ -670,7 +700,7 @@ def run_training_with_config(config: dict[str, Any]) -> dict[str, Any]:
     YAML structure::
 
         data:
-          type: csv | s3 | clickhouse
+          type: csv | s3 | clickhouse | hive
           path: /data/train.parquet       # csv type
           uri: s3://bucket/data.parquet   # s3 type
           format: csv | parquet

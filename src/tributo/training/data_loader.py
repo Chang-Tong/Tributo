@@ -1,4 +1,4 @@
-"""Ray Dataset distributed data loading, supporting local CSV/Parquet, S3 Parquet, ClickHouse."""
+"""Configuration dispatch for distributed Ray training datasets."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def load_ray_dataset_from_config(
 ) -> "ray.data.Dataset":
     """Load a Ray Dataset from a YAML ``data`` section (lazy, data does not land in Driver memory).
 
-    Supports csv / parquet (local), s3 (via DataConnector), clickhouse.
+    Supports local CSV/Parquet, S3, ClickHouse, and HiveServer2.
 
     Args:
         data_config: The ``data`` dictionary from YAML.
@@ -60,80 +60,75 @@ def load_ray_dataset_from_config(
         return connector.read(path=uri, s3=s3_config, columns=columns)
 
     if data_type == "clickhouse":
-        return _load_clickhouse_dataset(data_config)
+        return _load_database_dataset("clickhouse", data_config)
+
+    if data_type == "hive":
+        return _load_database_dataset("hive", data_config)
 
     raise ValueError(f"unsupported data type: {data_type}")
 
 
-def _load_clickhouse_dataset(data_config: dict) -> "ray.data.Dataset":
-    """Execute a ClickHouse SQL query and return the result as a Ray Dataset.
+def _load_database_dataset(kind: str, data_config: dict) -> "ray.data.Dataset":
+    """Normalize legacy training keys and delegate to a database connector."""
+    from tributo.data import get_connector
 
-    Uses ``clickhouse_connect`` to execute the parameterized SQL on the
-    ClickHouse server and converts the resulting PyArrow table into a Ray
-    Dataset.  For large result sets, consider pre-exporting to Parquet/S3
-    instead.
-
-    Args:
-        data_config: Data config dict containing:
-            ch_host, ch_port, ch_database, ch_user, ch_password,
-            ch_sql, ch_sql_params.
-
-    Returns:
-        Ray Dataset created from the query result.
-    """
-    import ray.data
-
-    sql = data_config.get("ch_sql", "")
-    if not sql:
-        raise ValueError("missing ch_sql in clickhouse data config")
-
-    # Resolve connection params: explicit config > env var > built-in default.
-    # Uses ``is None`` rather than ``or`` so that falsy values (empty string,
-    # port 0) are preserved when explicitly set in config.
-    host = data_config.get("ch_host")
-    if host is None:
-        host = os.getenv("TRIBUTO_CLICKHOUSE_HOST", "localhost")
-
-    port_cfg = data_config.get("ch_port")
-    if port_cfg is not None:
-        port = int(port_cfg)
+    if kind == "clickhouse":
+        prefix = "ch"
+        defaults: dict[str, object] = {
+            "host": os.getenv("TRIBUTO_CLICKHOUSE_HOST", "localhost"),
+            "port": int(os.getenv("TRIBUTO_CLICKHOUSE_PORT", "8123")),
+            "database": os.getenv("TRIBUTO_CLICKHOUSE_DB", "default"),
+            "username": os.getenv("TRIBUTO_CLICKHOUSE_USER", "default"),
+            "password": os.getenv("TRIBUTO_CLICKHOUSE_PASSWORD", ""),
+        }
+        optional: tuple[str, ...] = ("sort_key", "parallelism")
     else:
-        port_env = os.getenv("TRIBUTO_CLICKHOUSE_PORT")
-        port = int(port_env) if port_env else 8123
+        prefix = "hive"
+        defaults = {
+            "host": os.getenv("TRIBUTO_HIVE_HOST", "localhost"),
+            "port": int(os.getenv("TRIBUTO_HIVE_PORT", "10000")),
+            "database": os.getenv("TRIBUTO_HIVE_DB", "default"),
+            "username": os.getenv("TRIBUTO_HIVE_USER", "default"),
+            "password": os.getenv("TRIBUTO_HIVE_PASSWORD", ""),
+        }
+        optional = (
+            "batch_size",
+            "shard_mode",
+            "hash_column",
+            "hash_shards",
+            "parallelism",
+        )
 
-    database = data_config.get("ch_database")
-    if database is None:
-        database = os.getenv("TRIBUTO_CLICKHOUSE_DB", "")
-
-    user = data_config.get("ch_user")
-    if user is None:
-        user = os.getenv("TRIBUTO_CLICKHOUSE_USER", "default")
-
-    password = data_config.get("ch_password")
-    if password is None:
-        password = os.getenv("TRIBUTO_CLICKHOUSE_PASSWORD", "")
-    params = data_config.get("ch_sql_params", {}) or {}
-
-    import clickhouse_connect  # type: ignore[import-untyped]
-
-    client = clickhouse_connect.get_client(
-        host=host,
-        port=port,
-        username=user,
-        password=password,
-        database=database,
+    legacy_aliases = {"username": "user"}
+    kwargs: dict[str, object] = {}
+    for canonical, default in defaults.items():
+        legacy_name = legacy_aliases.get(canonical, canonical)
+        canonical_value = data_config.get(canonical)
+        kwargs[canonical] = (
+            canonical_value
+            if canonical_value is not None
+            else data_config.get(f"{prefix}_{legacy_name}", default)
+        )
+    canonical_sql = data_config.get("sql")
+    kwargs["sql"] = (
+        canonical_sql
+        if canonical_sql is not None
+        else data_config.get(f"{prefix}_sql", "")
     )
-    result = client.query_arrow(sql, parameters=params)
-    table = result  # clickhouse_connect returns pyarrow.Table directly
+    canonical_params = data_config.get("params")
+    kwargs["params"] = (
+        canonical_params
+        if canonical_params is not None
+        else data_config.get(f"{prefix}_sql_params", {})
+    ) or {}
+    for name in optional:
+        value = data_config.get(name)
+        if value is None:
+            value = data_config.get(f"{prefix}_{name}")
+        if value is not None:
+            kwargs[name] = value
 
-    if table is None or table.num_rows == 0:
-        raise ValueError("ClickHouse query returned empty result")
-
-    # Convert to Ray Dataset — the Arrow table lives in Driver memory,
-    # then Ray distributes blocks to workers.  For large result sets,
-    # set a reasonable block size so workers get manageable chunks.
-    num_blocks = max(1, table.num_rows // 10000)
-    return ray.data.from_arrow(table, override_num_blocks=num_blocks)
+    return get_connector(kind).read(**kwargs)
 
 
 def load_dataframe_from_config(

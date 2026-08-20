@@ -20,6 +20,7 @@ __version__: Final[str] = _version_str
 from tributo.config import JobConfig  # noqa: E402
 from tributo.exceptions import (  # noqa: E402
     DataSourceError,
+    EmptyDatasetError,
     JobConfigurationError,
     JobExecutionError,
     JobSubmissionError,
@@ -42,4 +43,5 @@ __all__: list[str] = [
     "JobTimeoutError",
     "ModelExportError",
     "DataSourceError",
+    "EmptyDatasetError",
 ]

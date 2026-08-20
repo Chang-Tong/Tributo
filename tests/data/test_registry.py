@@ -18,6 +18,8 @@ class TestRegistry:
         """内置连接器应已注册。"""
         connectors = list_connectors()
         assert "parquet" in connectors
+        assert "clickhouse" in connectors
+        assert "hive" in connectors
         try:
             import lance  # noqa: F401
 
@@ -38,6 +40,12 @@ class TestRegistry:
     def test_get_connector_unknown_raises(self):
         with pytest.raises(JobConfigurationError, match="Unknown connector"):
             get_connector("nonexistent")
+
+    def test_hive_optional_dependency_error_has_install_hint(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "pyhive", None)
+        connector = get_connector("hive")
+        with pytest.raises(ImportError, match=r"tributo\[hive\]"):
+            connector.read(sql="SELECT 1")
 
     def test_register_duplicate_raises(self):
         with pytest.raises(JobConfigurationError, match="already registered"):

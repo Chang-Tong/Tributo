@@ -91,6 +91,53 @@ class TestDataConfig:
         cfg = DataConfig()
         assert cfg.feature_columns == []
 
+    def test_database_sharding_fields_survive_model_round_trip(self):
+        raw = {
+            "type": "hive",
+            "hive_host": "hive.internal",
+            "hive_port": 10000,
+            "hive_database": "warehouse",
+            "hive_user": "reader",
+            "hive_password": "secret",
+            "hive_sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
+            "hive_sql_params": {"tenant": "acme"},
+            "hive_batch_size": 512,
+            "hive_shard_mode": "hash",
+            "hive_hash_column": "id",
+            "hive_hash_shards": 8,
+            "hive_parallelism": 4,
+            "ch_sort_key": "event_id",
+            "ch_parallelism": 6,
+        }
+
+        dumped = DataConfig.model_validate(raw).model_dump()
+
+        for key, value in raw.items():
+            assert dumped[key] == value
+
+    def test_canonical_database_fields_survive_model_round_trip(self):
+        raw = {
+            "type": "hive",
+            "host": "hive.internal",
+            "port": 10000,
+            "database": "warehouse",
+            "username": "reader",
+            "password": "secret",
+            "sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
+            "params": {"tenant": "acme"},
+            "sort_key": "id",
+            "parallelism": 4,
+            "batch_size": 512,
+            "shard_mode": "hash",
+            "hash_column": "id",
+            "hash_shards": 8,
+        }
+
+        dumped = DataConfig.model_validate(raw).model_dump()
+
+        for key, value in raw.items():
+            assert dumped[key] == value
+
 
 class TestSetupFeatureSelection:
     """XGBoostTrainerImpl.setup 严格特征选列测试。"""

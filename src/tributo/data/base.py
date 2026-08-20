@@ -8,6 +8,7 @@ data consistently across storage backends.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
@@ -18,6 +19,62 @@ from tributo.util.annotations import PublicAPI
 
 if TYPE_CHECKING:
     import ray.data
+
+
+_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DEFAULT_ROW_WIDTH_BYTES = 200
+_VARIABLE_FIELD_BYTES = 64
+
+
+def validate_sql_identifier(name: str) -> str:
+    """Validate a simple SQL result-column identifier.
+
+    Shard columns are interpolated into wrapper queries because database
+    drivers cannot bind identifiers as parameters. Keeping the accepted
+    grammar deliberately small makes that interpolation safe and portable.
+    """
+    if not isinstance(name, str) or not _SQL_IDENTIFIER.fullmatch(name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return name
+
+
+def quote_sql_identifier(name: str) -> str:
+    """Validate and backtick-quote a ClickHouse/Hive identifier."""
+    return f"`{validate_sql_identifier(name)}`"
+
+
+def deterministic_order_by(schema: Any) -> str:
+    """Return a deterministic ORDER BY clause for OFFSET sharding."""
+    if schema is None:
+        raise ValueError("A result schema is required for deterministic sharding")
+    names = getattr(schema, "names", None)
+    if not names:
+        raise ValueError("At least one result column is required for sharding")
+    return " ORDER BY " + ", ".join(quote_sql_identifier(name) for name in names)
+
+
+def schema_row_width(schema: Any) -> int:
+    """Conservatively estimate bytes per Arrow row for Ray planning."""
+    if schema is None:
+        return _DEFAULT_ROW_WIDTH_BYTES
+    import pyarrow as pa
+
+    total = 0
+    for field in schema:
+        field_type = field.type
+        if pa.types.is_boolean(field_type):
+            total += 1
+        elif pa.types.is_integer(field_type) or pa.types.is_floating(field_type):
+            total += max(1, field_type.bit_width // 8)
+        elif (
+            pa.types.is_timestamp(field_type)
+            or pa.types.is_date(field_type)
+            or pa.types.is_time(field_type)
+        ):
+            total += 8
+        else:
+            total += _VARIABLE_FIELD_BYTES
+    return max(1, total)
 
 
 @PublicAPI(stability="alpha")
