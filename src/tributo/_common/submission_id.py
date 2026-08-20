@@ -8,6 +8,7 @@ a duplicate job. This module generates deterministic IDs from job parameters.
 from __future__ import annotations
 
 import hashlib
+import json
 
 
 def generate_submission_id(prefix: str, *components: str) -> str:
@@ -35,3 +36,18 @@ def generate_submission_id(prefix: str, *components: str) -> str:
     payload = "|".join(components)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     return f"tributo-{prefix}-{digest}"
+
+
+def generate_training_submission_id(
+    run_id: str, attempt_id: str, entrypoint: str
+) -> str:
+    """Generate the stable Ray identity for one business training attempt."""
+    canonical = json.dumps(
+        [run_id, attempt_id, entrypoint],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    # Feed the legacy generator one canonical component. Its delimiter-based
+    # format remains unchanged for all existing callers, while training
+    # identity components cannot collide when they contain ``|``.
+    return generate_submission_id("train", canonical)

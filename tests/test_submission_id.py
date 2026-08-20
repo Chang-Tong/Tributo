@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tributo._common.submission_id import generate_submission_id
+from tributo._common.submission_id import (
+    generate_submission_id,
+    generate_training_submission_id,
+)
 
 
 class TestGenerateSubmissionId:
@@ -50,6 +53,11 @@ class TestGenerateSubmissionId:
         """inference 前缀应包含 'infer'。"""
         sid = generate_submission_id("infer", "jobs/inference.yaml")
         assert sid.startswith("tributo-infer-")
+
+    def test_training_identity_components_with_delimiters_do_not_collide(self):
+        first = generate_training_submission_id("a|b", "c", "python train.py")
+        second = generate_training_submission_id("a", "b|c", "python train.py")
+        assert first != second
 
 
 class TestJobRunnerSubmissionId:

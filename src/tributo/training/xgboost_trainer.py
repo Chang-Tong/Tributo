@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tributo.data.base import S3Config
 from tributo.integrations.broker import CancellationChecker
 from tributo.training.base import BaseTrainer, TrainerSpec
+from tributo.training.execution_context import (
+    ExecutionContext,
+    TrainingCancelledError,
+)
 from tributo.training.registry import register
 from tributo.util.annotations import PublicAPI
 
@@ -140,7 +144,7 @@ class XGBoostTrainerImpl(BaseTrainer):
             split_dataset,
         )
 
-        ds = self.datasets.get("train")
+        ds: Any = self.datasets.get("train")
         if ds is None:
             raise ValueError("datasets must contain 'train' key")
 
@@ -277,6 +281,30 @@ class XGBoostTrainerImpl(BaseTrainer):
 # ── Training loop (Ray worker level) ──
 
 
+def _resolve_worker_cancellation() -> tuple[str | None, CancellationChecker | None]:
+    """Rebuild cancellation state inside each Ray worker process."""
+    context = ExecutionContext.from_environment()
+    if context.cancellation is None:
+        return None, None
+    return context.cancellation.job_id, context.build_cancellation_checker()
+
+
+def _raise_if_training_cancelled(
+    job_id: str | None,
+    checker: CancellationChecker | None,
+) -> None:
+    """Raise a dedicated failure instead of reporting early-stop success."""
+    if job_id is None or checker is None:
+        return
+    try:
+        cancelled = checker.is_cancelled(job_id)
+    except Exception:
+        logger.warning("Cancellation check failed for job %s", job_id, exc_info=True)
+        return
+    if cancelled:
+        raise TrainingCancelledError(f"Training job {job_id!r} was cancelled")
+
+
 def train_loop_per_worker(config: dict[str, Any]) -> None:
     """XGBoost training main loop executed by each Ray worker.
 
@@ -299,11 +327,10 @@ def train_loop_per_worker(config: dict[str, Any]) -> None:
     max_rows = config.get("max_rows_per_worker")
     _feature_names: dict[str, list[str]] = {}
 
-    # Cancel signal — inject CancellationChecker via config when using a broker.
-    # TODO(v1.1): _tributo_cancel_key and _tributo_cancel_checker are dead code
-    # until a broker implementation (e.g. tributo-broker-redis) populates them.
-    _cancel_key: str | None = config.get("_tributo_cancel_key")
-    _cancel_checker: CancellationChecker | None = config.get("_tributo_cancel_checker")
+    # Rebuild on each worker from the opaque environment context. Never send a
+    # live Provider client/checker through Ray's Driver-to-worker serialization.
+    _cancel_key, _cancel_checker = _resolve_worker_cancellation()
+    _raise_if_training_cancelled(_cancel_key, _cancel_checker)
 
     class _CancelCallback(xgboost.callback.TrainingCallback):
         """Check cancellation signal after each iteration (broker protocol)."""
@@ -311,17 +338,8 @@ def train_loop_per_worker(config: dict[str, Any]) -> None:
         def after_iteration(
             self, model: xgboost.Booster, epoch: int, evts_log: dict
         ) -> bool:
-            if _cancel_key is None or _cancel_checker is None:
-                return False
-            try:
-                return _cancel_checker.is_cancelled(_cancel_key)
-            except Exception:
-                logger.warning(
-                    "Cancellation check failed for job %s",
-                    _cancel_key,
-                    exc_info=True,
-                )
-                return False  # transient error → don't cancel
+            _raise_if_training_cancelled(_cancel_key, _cancel_checker)
+            return False
 
     def _make_quantile_dmatrix(
         dataset_key: str,
@@ -338,6 +356,7 @@ def train_loop_per_worker(config: dict[str, Any]) -> None:
         batches = []
         rows_seen = 0
         for batch in shard.iter_batches(batch_format="pyarrow", batch_size=4096):
+            _raise_if_training_cancelled(_cancel_key, _cancel_checker)
             if max_rows is not None and rows_seen >= max_rows:
                 break
             if max_rows is not None:
@@ -382,6 +401,7 @@ def train_loop_per_worker(config: dict[str, Any]) -> None:
         early_stopping_rounds=config.get("early_stopping_rounds"),
         callbacks=[_CancelCallback()],
     )
+    _raise_if_training_cancelled(_cancel_key, _cancel_checker)
 
     world_rank = ray.train.get_context().get_world_rank()
 
@@ -701,7 +721,7 @@ def run_training_with_config(config: dict[str, Any]) -> dict[str, Any]:
         _validated_config=cfg,
     )
     output_path = cfg.output.onnx_path or ""
-    return trainer.run(output_path=output_path)
+    return cast(dict[str, Any], trainer.run(output_path=output_path))
 
 
 # Built-in registration

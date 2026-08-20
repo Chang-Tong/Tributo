@@ -22,6 +22,7 @@ from tributo._common.storage import (
     write_bytes,
     write_json,
 )
+from tributo._common.submission_id import generate_training_submission_id
 
 DEFAULT_DASHBOARD_URL = os.environ.get("DEFAULT_DASHBOARD_URL", "http://127.0.0.1:8265")
 
@@ -32,6 +33,7 @@ __all__ = [
     "find_project_root",
     "get_boto3_client",
     "get_boto3_client_from_config",
+    "generate_training_submission_id",
     "parse_s3_url",
     "resolve_to_local",
     "upload_file",

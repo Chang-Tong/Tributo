@@ -15,6 +15,7 @@ import click
 
 from tributo import JobConfig
 from tributo._common import DEFAULT_DASHBOARD_URL, configure_logging
+from tributo.cli_broker import broker as broker_command
 from tributo.exceptions import JobConfigurationError, TributoError
 from tributo.job import TributoClient
 
@@ -26,6 +27,11 @@ logger = logging.getLogger(__name__)
 def main():
     """Tributo: Unified framework for submitting Ray Jobs."""
     configure_logging(log_format="text")
+
+
+# Importing the command definitions above does not discover or import providers.
+# Provider loading happens only inside the explicitly selected broker command.
+main.add_command(broker_command)
 
 
 @main.command()

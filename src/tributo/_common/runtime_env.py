@@ -7,9 +7,11 @@ dependencies are correctly loaded when submitting via the Jobs API.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +86,9 @@ def build_runtime_env(
     extra_excludes: list[str] | None = None,
     env_vars: dict[str, str] | None = None,
     pythonpath: str | None = None,
+    extra_py_modules: list[str | Path] | None = None,
+    runtime_pip_packages: list[str] | None = None,
+    execution_context: Mapping[str, Any] | Any | None = None,
 ) -> dict[str, Any]:
     """Build a runtime_env dict suitable for the Ray Jobs API.
 
@@ -103,6 +108,9 @@ def build_runtime_env(
         env_vars: Additional environment variables.
         pythonpath: PYTHONPATH default, includes both ``/venv`` and anaconda
             site-packages. Adjust if the cluster uses a different Python version.
+        extra_py_modules: Additional provider source directories uploaded by Ray.
+        runtime_pip_packages: Packages or wheel paths installed by Ray workers.
+        execution_context: Broker-neutral, JSON-serializable worker context.
 
     Returns:
         A dict that can be passed directly to
@@ -135,6 +143,10 @@ def build_runtime_env(
     merged_env_vars: dict[str, str] = {}
     if env_vars:
         merged_env_vars.update(env_vars)
+    if execution_context is not None:
+        merged_env_vars["TRIBUTO_EXECUTION_CONTEXT"] = _serialize_execution_context(
+            execution_context
+        )
 
     # Ensure PYTHONPATH includes both /venv and anaconda site-packages
     pythonpath = pythonpath or _default_pythonpath()
@@ -145,18 +157,37 @@ def build_runtime_env(
         else:
             merged_env_vars["PYTHONPATH"] = pythonpath
 
+    py_modules = [str(src_pkg)]
+    for module in extra_py_modules or []:
+        module_path = str(module)
+        if module_path not in py_modules:
+            py_modules.append(module_path)
+
     runtime_env: dict[str, Any] = {
         "working_dir": str(root),
         "excludes": excludes,
-        "py_modules": [str(src_pkg)],
+        "py_modules": py_modules,
     }
+    if runtime_pip_packages:
+        runtime_env["pip"] = list(runtime_pip_packages)
     if merged_env_vars:
         runtime_env["env_vars"] = merged_env_vars
 
     logger.debug(
-        "Built runtime_env: working_dir=%s, py_modules=%s, env_vars=%s",
+        "Built runtime_env: working_dir=%s, py_modules=%s, env_var_keys=%s",
         root,
-        src_pkg,
-        merged_env_vars,
+        py_modules,
+        sorted(merged_env_vars),
     )
     return runtime_env
+
+
+def _serialize_execution_context(context: Mapping[str, Any] | Any) -> str:
+    """Validate and serialize the versioned broker-neutral worker context."""
+    from tributo.training.execution_context import ExecutionContext
+
+    value = context.as_dict() if hasattr(context, "as_dict") else context
+    if not isinstance(value, Mapping):
+        raise TypeError("execution_context must be a mapping or expose as_dict()")
+    plain = ExecutionContext.from_mapping(value).as_dict()
+    return json.dumps(plain, sort_keys=True, separators=(",", ":"))

@@ -286,6 +286,106 @@ def test_version(runner):
     assert "1.0" in result.output
 
 
+class TestBrokerCommands:
+    """Tests for Broker CLI discovery and lifecycle commands."""
+
+    def test_broker_list_does_not_fail_for_broken_provider(self, runner):
+        with patch(
+            "tributo.integrations.broker_registry.list_broker_provider_statuses"
+        ) as statuses:
+            statuses.return_value = []
+            result = runner.invoke(main, ["broker", "list"])
+        assert result.exit_code == 0
+        assert "No broker providers installed" in result.output
+
+    def test_broker_list_marks_ambiguous_provider_unavailable(self, runner):
+        status = MagicMock()
+        status.broker_id = "duplicate"
+        status.available = False
+        status.plugin = None
+        status.error = "ambiguous: multiple entry points are installed"
+        with patch(
+            "tributo.integrations.broker_registry.list_broker_provider_statuses",
+            return_value=[status],
+        ):
+            result = runner.invoke(main, ["broker", "list"])
+        assert result.exit_code == 0
+        assert "duplicate" in result.output
+        assert "unavailable" in result.output
+        assert "ambiguous" in result.output
+
+    def test_ordinary_cli_does_not_discover_broker_providers(self, runner):
+        with patch("tributo.integrations.broker_registry.entry_points") as entry_points:
+            result = runner.invoke(main, ["--version"])
+        assert result.exit_code == 0
+        entry_points.assert_not_called()
+
+    def test_broker_validate_missing_provider_fails_closed(self, runner, tmp_path):
+        config = tmp_path / "broker.json"
+        config.write_text("{}")
+        result = runner.invoke(
+            main,
+            [
+                "broker",
+                "validate",
+                "--broker",
+                "missing",
+                "--config",
+                str(config),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "missing" in result.output
+
+    def test_broker_consume_once_drives_runner(self, runner, tmp_path):
+        config = tmp_path / "broker.json"
+        config.write_text("{}")
+        plugin = MagicMock()
+        plugin.broker_id = "fake"
+        with (
+            patch(
+                "tributo.integrations.broker_registry.get_broker_plugin",
+                return_value=plugin,
+            ),
+            patch("tributo.cli_broker.BrokerRunner") as runner_cls,
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "broker",
+                    "consume",
+                    "--broker",
+                    "fake",
+                    "--config",
+                    str(config),
+                    "--once",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        runner_cls.return_value.run_once.assert_called_once_with()
+        runner_cls.return_value.close.assert_called_once_with()
+
+    def test_broker_consume_rejects_negative_poll_timeout(self, runner, tmp_path):
+        config = tmp_path / "broker.json"
+        config.write_text("{}")
+        result = runner.invoke(
+            main,
+            [
+                "broker",
+                "consume",
+                "--broker",
+                "fake",
+                "--config",
+                str(config),
+                "--poll-timeout-ms",
+                "-1",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "range" in result.output
+        assert "0" in result.output
+
+
 if __name__ == "__main__":
     import sys
 

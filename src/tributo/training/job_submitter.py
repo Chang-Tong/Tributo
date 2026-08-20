@@ -8,18 +8,116 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ray.job_submission import JobStatus, JobSubmissionClient
 
 from tributo._common import DEFAULT_DASHBOARD_URL, build_runtime_env
 from tributo._common.retry import retry_with_exponential_backoff
-from tributo._common.submission_id import generate_submission_id
+from tributo._common.submission_id import (
+    generate_submission_id,
+    generate_training_submission_id,
+)
 from tributo.util.annotations import PublicAPI
 
 logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 180
+
+
+@dataclass(frozen=True)
+class SubmissionIdentity:
+    """Stable business identity and its reconciled Ray execution."""
+
+    run_id: str
+    attempt_id: str
+    submission_id: str
+    job_id: str
+
+    @property
+    def execution_id(self) -> str:
+        """Alias for the actual Ray Job identity."""
+        return self.job_id
+
+
+@PublicAPI(stability="beta")
+def submit_training_job_with_identity(
+    entrypoint: str,
+    *,
+    run_id: str,
+    attempt_id: str,
+    dashboard_url: str = DEFAULT_DASHBOARD_URL,
+    env_vars: dict[str, str] | None = None,
+    project_root: Path | None = None,
+    extra_excludes: list[str] | None = None,
+    extra_py_modules: list[str | Path] | None = None,
+    runtime_pip_packages: list[str] | None = None,
+    execution_context: dict[str, Any] | Any | None = None,
+) -> SubmissionIdentity:
+    """Submit or reconcile exactly one business training attempt.
+
+    Redis redelivery and other transport retries reuse the deterministic
+    ``submission_id``. A terminal Ray Job is still the same execution; a new
+    execution requires the caller to provide a different ``attempt_id``.
+    """
+    if not run_id:
+        raise ValueError("run_id must be non-empty")
+    if not attempt_id:
+        raise ValueError("attempt_id must be non-empty")
+
+    submission_id = generate_training_submission_id(run_id, attempt_id, entrypoint)
+    identity_env = dict(env_vars or {})
+    identity_env.update(
+        {
+            "TRIBUTO_RUN_ID": run_id,
+            "TRIBUTO_ATTEMPT_ID": attempt_id,
+            "TRIBUTO_SUBMISSION_ID": submission_id,
+        }
+    )
+    runtime_env = build_runtime_env(
+        project_root=project_root,
+        env_vars=identity_env,
+        extra_excludes=extra_excludes,
+        extra_py_modules=extra_py_modules,
+        runtime_pip_packages=runtime_pip_packages,
+        execution_context=execution_context,
+    )
+
+    client = _get_submission_client(dashboard_url)
+    try:
+        job_id = client.submit_job(
+            entrypoint=entrypoint,
+            runtime_env=runtime_env,
+            submission_id=submission_id,
+        )
+    except RuntimeError as exc:
+        if "already exists" not in str(exc).lower():
+            raise
+        try:
+            status = client.get_job_status(submission_id)
+        except Exception as status_exc:
+            raise RuntimeError(
+                f"Existing Ray job {submission_id!r} status query failed"
+            ) from status_exc
+        if not isinstance(status, JobStatus):
+            raise RuntimeError(
+                f"Existing Ray job {submission_id!r} status could not be confirmed: "
+                f"{status!r}"
+            ) from exc
+        logger.info(
+            "Reconciled existing training job %s with status %s",
+            submission_id,
+            status,
+        )
+        job_id = submission_id
+
+    return SubmissionIdentity(
+        run_id=run_id,
+        attempt_id=attempt_id,
+        submission_id=submission_id,
+        job_id=cast(str, job_id),
+    )
 
 
 @PublicAPI(stability="beta")
@@ -88,7 +186,7 @@ def submit_training_job(
             submission_id=submission_id,
         )
     logger.info("Submitted training job %s: %s", job_id, entrypoint)
-    return job_id
+    return cast(str, job_id)
 
 
 @retry_with_exponential_backoff(
