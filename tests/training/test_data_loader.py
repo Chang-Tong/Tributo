@@ -7,6 +7,40 @@ from unittest.mock import MagicMock, patch
 from tributo.training.data_loader import load_ray_dataset_from_config
 
 
+def test_local_csv_absolute_path_does_not_require_project_root(tmp_path, monkeypatch):
+    data_file = tmp_path / "train.csv"
+    data_file.write_text("feature,label\n1,0\n")
+    unrelated_directory = tmp_path / "worker"
+    unrelated_directory.mkdir()
+    monkeypatch.chdir(unrelated_directory)
+
+    with patch("ray.data.read_csv") as read_csv:
+        expected = MagicMock()
+        read_csv.return_value = expected
+        actual = load_ray_dataset_from_config(
+            {"type": "csv", "format": "csv", "path": str(data_file)}
+        )
+
+    assert actual is expected
+    read_csv.assert_called_once_with(str(data_file))
+
+
+def test_local_csv_relative_path_resolves_from_worker_cwd(tmp_path, monkeypatch):
+    data_file = tmp_path / "train.csv"
+    data_file.write_text("feature,label\n1,0\n")
+    monkeypatch.chdir(tmp_path)
+
+    with patch("ray.data.read_csv") as read_csv:
+        expected = MagicMock()
+        read_csv.return_value = expected
+        actual = load_ray_dataset_from_config(
+            {"type": "csv", "format": "csv", "path": "train.csv"}
+        )
+
+    assert actual is expected
+    read_csv.assert_called_once_with(str(data_file))
+
+
 def test_s3_parquet_uses_parquet_connector():
     with patch("tributo.data.get_connector") as mock_get_connector:
         mock_connector = MagicMock()

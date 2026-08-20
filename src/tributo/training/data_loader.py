@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tributo._common import find_project_root
-
 if TYPE_CHECKING:
     import pandas as pd
     import ray.data
@@ -23,7 +21,8 @@ def load_ray_dataset_from_config(
 
     Args:
         data_config: The ``data`` dictionary from YAML.
-        project_root_path: Project root directory for resolving relative paths.
+        project_root_path: Optional base directory for resolving relative paths. If
+            omitted, relative paths are resolved from the worker's current directory.
 
     Returns:
         Ray Dataset, lazily evaluated.
@@ -33,12 +32,12 @@ def load_ray_dataset_from_config(
     data_type = data_config.get("type", "csv")
 
     if data_type == "csv":
-        root = project_root_path or find_project_root()
         file_path = data_config.get("path", "")
         fmt = data_config.get("format", "")
         full_path = Path(file_path)
         if not full_path.is_absolute():
-            full_path = root / file_path
+            root = project_root_path or Path.cwd()
+            full_path = root / full_path
         if not full_path.exists():
             raise FileNotFoundError(f"Data file not found: {full_path}")
         if fmt == "csv":
@@ -147,7 +146,8 @@ def load_dataframe_from_config(
 
     Args:
         data_config: The ``data`` dictionary from YAML.
-        project_root_path: Project root directory for resolving relative paths.
+        project_root_path: Optional base directory for resolving relative paths. If
+            omitted, relative paths are resolved from the worker's current directory.
 
     Returns:
         pandas DataFrame.

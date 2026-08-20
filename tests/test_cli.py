@@ -281,9 +281,10 @@ class TestEmbedCommand:
 
 def test_version(runner):
     """--version should print the version."""
-    result = runner.invoke(main, ["--version"])
+    with patch("importlib.metadata.version", return_value="1.1.0"):
+        result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "1.0" in result.output
+    assert "1.1.0" in result.output
 
 
 class TestBrokerCommands:

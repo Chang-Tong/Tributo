@@ -1,6 +1,6 @@
 [project]
 name = "tributo"
-version = "1.0.0"
+version = "1.1.0"
 description = "Telecom-native ML framework: PU Learning, behavioral sequence pre-training, and billion-scale look-alike on Ray"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
