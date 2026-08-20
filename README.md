@@ -119,6 +119,9 @@ uv sync --extra training
 # With data connectors (Lance / Iceberg)
 uv sync --extra data
 
+# With HiveServer2 (portable auth stack; no native Cyrus SASL compiler)
+uv sync --extra hive
+
 # With text embeddings (BGE models)
 uv sync --extra embeddings
 
@@ -129,6 +132,19 @@ uv sync --extra dev
 ---
 
 ## Modules
+
+### HiveServer2 data source
+
+Install `tributo[hive]` for distributed Hive reads. The extra uses `PyHive`,
+Apache Thrift, `thrift-sasl`, and `pure-sasl` directly instead of
+`PyHive[hive]`; this keeps HiveServer2 workers portable on ARM images without
+installing a C++ toolchain for the native `sasl` package. `auth: NONE` is the
+backwards-compatible default; `NOSASL` may be selected explicitly. `LDAP` and
+`CUSTOM` are also supported but require a non-empty password, while passwords
+are rejected for `NONE`/`NOSASL`. Kerberos is not supported by this extra and
+fails closed rather than falling back to another mode. Prefer injecting
+`TRIBUTO_HIVE_AUTH` and `TRIBUTO_HIVE_PASSWORD` from the deployment secret
+store instead of placing credentials in checked-in training configuration.
 
 ### Distributed XGBoost Training
 

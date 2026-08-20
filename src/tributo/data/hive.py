@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from math import ceil
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ray.data.block import BlockMetadata
 from ray.data.datasource import Datasource, ReadTask
 
@@ -39,6 +39,7 @@ class HiveReadConfig(BaseModel):
     database: str = "default"
     username: str = "default"
     password: str | None = None
+    auth: Literal["NONE", "NOSASL", "LDAP", "CUSTOM"] = "NONE"
     sql: str
     params: dict[str, Any] = Field(default_factory=dict)
     batch_size: int = Field(default=10_000, ge=1)
@@ -65,6 +66,20 @@ class HiveReadConfig(BaseModel):
             validate_sql_identifier(value)
         return value
 
+    @field_validator("auth", mode="before")
+    @classmethod
+    def _normalize_auth(cls, value: object) -> object:
+        return value.upper() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _validate_auth_credentials(self) -> HiveReadConfig:
+        has_password = self.password not in (None, "")
+        if has_password and self.auth not in {"LDAP", "CUSTOM"}:
+            raise ValueError("Hive password requires auth LDAP or CUSTOM")
+        if not has_password and self.auth in {"LDAP", "CUSTOM"}:
+            raise ValueError(f"Hive auth {self.auth} requires password")
+        return self
+
     @field_validator("parallelism")
     @classmethod
     def _validate_parallelism(cls, value: int) -> int:
@@ -78,12 +93,17 @@ def _hive_connection(config: HiveReadConfig) -> Any:
         from pyhive import hive
     except (ImportError, ModuleNotFoundError) as exc:
         raise ImportError("Hive data sources require tributo[hive].") from exc
+    kwargs: dict[str, object] = {
+        "host": config.host,
+        "port": config.port,
+        "database": config.database,
+        "username": config.username,
+        "auth": config.auth,
+    }
+    if config.password not in (None, ""):
+        kwargs["password"] = config.password
     return hive.connect(
-        host=config.host,
-        port=config.port,
-        database=config.database,
-        username=config.username,
-        password=config.password or None,
+        **kwargs,
     )
 
 

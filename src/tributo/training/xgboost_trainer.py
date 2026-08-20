@@ -6,7 +6,7 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tributo.data.base import S3Config
 from tributo.exceptions import ModelExportError, TrainingDataError
@@ -43,6 +43,7 @@ class DataConfig(BaseModel):
     database: str | None = None
     username: str | None = None
     password: str | None = None
+    auth: Literal["NONE", "NOSASL", "LDAP", "CUSTOM"] | None = None
     sql: str | None = None
     params: dict[str, Any] | None = None
     sort_key: str | None = None
@@ -75,7 +76,8 @@ class DataConfig(BaseModel):
     hive_port: int = 10000
     hive_database: str = "default"
     hive_user: str = "default"
-    hive_password: str = ""
+    hive_password: str | None = None
+    hive_auth: Literal["NONE", "NOSASL", "LDAP", "CUSTOM"] | None = None
     hive_sql: str = ""
     hive_sql_params: dict[str, Any] = Field(default_factory=dict)
     hive_batch_size: int = 10_000
@@ -93,6 +95,11 @@ class DataConfig(BaseModel):
         if self.class_balance_strategy == "CUSTOM_AMOUNT" and not self.class_amounts:
             raise ValueError("CUSTOM_AMOUNT requires class_amounts")
         return self
+
+    @field_validator("auth", "hive_auth", mode="before")
+    @classmethod
+    def normalize_hive_auth(cls, value: object) -> object:
+        return value.upper() if isinstance(value, str) else value
 
 
 class ModelConfig(BaseModel):
@@ -1871,7 +1878,10 @@ def run_training_with_config(config: dict[str, Any]) -> dict[str, Any]:
     progress = TrainingProgress.from_environment()
     progress.report_phase(TrainingPhase.LOADING_DATA)
     logger.info("Loading data (type=%s)...", cfg.data.type)
-    ds = load_ray_dataset_from_config(cfg.data.model_dump())
+    # Preserve unset credential fields so the loader can merge worker-local
+    # environment secrets after Pydantic validation. Explicit empty/configured
+    # values remain present and therefore take precedence over the environment.
+    ds = load_ray_dataset_from_config(cfg.data.model_dump(exclude_unset=True))
 
     # Execute training using XGBoostTrainerImpl
     trainer = XGBoostTrainerImpl(

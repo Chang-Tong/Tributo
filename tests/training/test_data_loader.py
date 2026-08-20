@@ -139,6 +139,7 @@ def test_hive_legacy_config_is_dispatched_to_connector():
                 "hive_database": "warehouse",
                 "hive_user": "reader",
                 "hive_password": "secret",
+                "hive_auth": "LDAP",
                 "hive_sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
                 "hive_sql_params": {"tenant": "acme"},
                 "hive_hash_column": "id",
@@ -154,6 +155,7 @@ def test_hive_legacy_config_is_dispatched_to_connector():
         "database": "warehouse",
         "username": "reader",
         "password": "secret",
+        "auth": "LDAP",
         "sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
         "params": {"tenant": "acme"},
         "hash_column": "id",
@@ -171,21 +173,22 @@ def test_database_canonical_config_is_dispatched_by_type(kind, port):
         get_connector.return_value = connector
         connector.read.return_value = MagicMock()
 
-        load_ray_dataset_from_config(
-            {
-                "type": kind,
-                "host": f"{kind}.internal",
-                "port": port,
-                "database": "analytics",
-                "username": "reader",
-                "password": "secret",
-                "sql": "SELECT id FROM events",
-                "params": {"tenant": "acme"},
-            }
-        )
+        raw = {
+            "type": kind,
+            "host": f"{kind}.internal",
+            "port": port,
+            "database": "analytics",
+            "username": "reader",
+            "password": "secret",
+            "sql": "SELECT id FROM events",
+            "params": {"tenant": "acme"},
+        }
+        if kind == "hive":
+            raw["auth"] = "CUSTOM"
+        load_ray_dataset_from_config(raw)
 
     get_connector.assert_called_once_with(kind)
-    assert connector.read.call_args.kwargs == {
+    expected = {
         "host": f"{kind}.internal",
         "port": port,
         "database": "analytics",
@@ -194,6 +197,9 @@ def test_database_canonical_config_is_dispatched_by_type(kind, port):
         "sql": "SELECT id FROM events",
         "params": {"tenant": "acme"},
     }
+    if kind == "hive":
+        expected["auth"] = "CUSTOM"
+    assert connector.read.call_args.kwargs == expected
 
 
 def test_xgboost_data_config_round_trip_preserves_hive_loader_fields():
@@ -207,6 +213,7 @@ def test_xgboost_data_config_round_trip_preserves_hive_loader_fields():
             "database": "warehouse",
             "username": "reader",
             "password": "secret",
+            "auth": "LDAP",
             "sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
             "params": {"tenant": "acme"},
             "hive_hash_column": "id",
@@ -225,6 +232,7 @@ def test_xgboost_data_config_round_trip_preserves_hive_loader_fields():
         "database": "warehouse",
         "username": "reader",
         "password": "secret",
+        "auth": "LDAP",
         "sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
         "params": {"tenant": "acme"},
         "batch_size": 10_000,
@@ -232,6 +240,56 @@ def test_xgboost_data_config_round_trip_preserves_hive_loader_fields():
         "hash_column": "id",
         "hash_shards": 64,
     }
+
+
+def test_hive_unset_model_credentials_fall_back_to_worker_environment(
+    monkeypatch,
+):
+    from tributo.training.xgboost_trainer import DataConfig
+
+    monkeypatch.setenv("TRIBUTO_HIVE_AUTH", "LDAP")
+    monkeypatch.setenv("TRIBUTO_HIVE_PASSWORD", "env-secret")
+    config = DataConfig.model_validate(
+        {"type": "hive", "hive_sql": "SELECT id FROM events"}
+    ).model_dump()
+
+    with patch("tributo.data.get_connector") as get_connector:
+        connector = MagicMock()
+        get_connector.return_value = connector
+        connector.read.return_value = MagicMock()
+        load_ray_dataset_from_config(config)
+
+    assert connector.read.call_args.kwargs["auth"] == "LDAP"
+    assert connector.read.call_args.kwargs["password"] == "env-secret"
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {"auth": "CUSTOM", "password": "config-secret"},
+        {"hive_auth": "CUSTOM", "hive_password": "config-secret"},
+    ],
+)
+def test_hive_explicit_credentials_override_worker_environment(
+    credentials, monkeypatch
+):
+    monkeypatch.setenv("TRIBUTO_HIVE_AUTH", "LDAP")
+    monkeypatch.setenv("TRIBUTO_HIVE_PASSWORD", "env-secret")
+
+    with patch("tributo.data.get_connector") as get_connector:
+        connector = MagicMock()
+        get_connector.return_value = connector
+        connector.read.return_value = MagicMock()
+        load_ray_dataset_from_config(
+            {
+                "type": "hive",
+                "hive_sql": "SELECT id FROM events",
+                **credentials,
+            }
+        )
+
+    assert connector.read.call_args.kwargs["auth"] == "CUSTOM"
+    assert connector.read.call_args.kwargs["password"] == "config-secret"
 
 
 @pytest.mark.parametrize(
@@ -270,6 +328,7 @@ def test_xgboost_data_config_round_trip_preserves_hive_loader_fields():
                 "database": "warehouse",
                 "username": "reader",
                 "password": "secret",
+                "auth": "CUSTOM",
                 "sql": "SELECT id FROM events",
                 "params": {"tenant": "acme"},
                 "parallelism": 4,
@@ -284,6 +343,7 @@ def test_xgboost_data_config_round_trip_preserves_hive_loader_fields():
                 "database": "warehouse",
                 "username": "reader",
                 "password": "secret",
+                "auth": "CUSTOM",
                 "sql": "SELECT id FROM events",
                 "params": {"tenant": "acme"},
                 "parallelism": 4,

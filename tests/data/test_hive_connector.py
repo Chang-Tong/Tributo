@@ -9,7 +9,12 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 
-from tributo.data.hive import HiveDataConnector, HiveDatasource, HiveReadConfig
+from tributo.data.hive import (
+    HiveDataConnector,
+    HiveDatasource,
+    HiveReadConfig,
+    _hive_connection,
+)
 from tributo.exceptions import EmptyDatasetError
 
 
@@ -68,6 +73,68 @@ class _HiveConnection:
 
 def _hive_module(connections: list[_HiveConnection]):
     return SimpleNamespace(connect=lambda **_kwargs: connections.pop(0))
+
+
+@pytest.mark.parametrize("auth", ["NONE", "NOSASL"])
+def test_hive_connection_passes_passwordless_auth_explicitly(auth: str) -> None:
+    connection = _HiveConnection(_HiveCursor())
+    captured: list[dict[str, object]] = []
+    fake_pyhive = SimpleNamespace(
+        hive=SimpleNamespace(
+            connect=lambda **kwargs: captured.append(kwargs) or connection
+        )
+    )
+
+    with patch.dict(sys.modules, {"pyhive": fake_pyhive}):
+        assert (
+            _hive_connection(HiveReadConfig(sql="SELECT 1", auth=auth.lower()))
+            is connection
+        )
+
+    assert captured == [
+        {
+            "host": "localhost",
+            "port": 10000,
+            "database": "default",
+            "username": "default",
+            "auth": auth,
+        }
+    ]
+
+
+@pytest.mark.parametrize("auth", ["LDAP", "CUSTOM"])
+def test_hive_connection_passes_password_for_password_auth(auth: str) -> None:
+    connection = _HiveConnection(_HiveCursor())
+    captured: list[dict[str, object]] = []
+    fake_pyhive = SimpleNamespace(
+        hive=SimpleNamespace(
+            connect=lambda **kwargs: captured.append(kwargs) or connection
+        )
+    )
+    config = HiveReadConfig(sql="SELECT 1", auth=auth, password="secret")
+
+    with patch.dict(sys.modules, {"pyhive": fake_pyhive}):
+        assert _hive_connection(config) is connection
+
+    assert captured[0]["auth"] == auth
+    assert captured[0]["password"] == "secret"
+
+
+@pytest.mark.parametrize("auth", ["NONE", "NOSASL"])
+def test_hive_password_requires_password_auth(auth: str) -> None:
+    with pytest.raises(ValueError, match="password requires auth LDAP or CUSTOM"):
+        HiveReadConfig(sql="SELECT 1", auth=auth, password="secret")
+
+
+@pytest.mark.parametrize("auth", ["LDAP", "CUSTOM"])
+def test_hive_password_auth_requires_password(auth: str) -> None:
+    with pytest.raises(ValueError, match=f"auth {auth} requires password"):
+        HiveReadConfig(sql="SELECT 1", auth=auth)
+
+
+def test_hive_rejects_unsupported_kerberos_auth() -> None:
+    with pytest.raises(ValueError, match="auth"):
+        HiveReadConfig(sql="SELECT 1", auth="KERBEROS")
 
 
 def test_hive_module_import_is_lazy_when_pyhive_is_missing() -> None:

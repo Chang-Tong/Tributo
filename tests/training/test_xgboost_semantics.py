@@ -470,6 +470,38 @@ def test_data_semantic_fields_survive_round_trip() -> None:
         assert dumped[key] == value
 
 
+def test_run_config_merges_hive_password_from_worker_environment(monkeypatch) -> None:
+    monkeypatch.setenv("TRIBUTO_HIVE_HOST", "hive.env.internal")
+    monkeypatch.setenv("TRIBUTO_HIVE_AUTH", "LDAP")
+    monkeypatch.setenv("TRIBUTO_HIVE_PASSWORD", "env-secret")
+    connector = MagicMock()
+    connector.read.return_value = MagicMock()
+
+    with (
+        patch("tributo.data.get_connector", return_value=connector),
+        patch("tributo.training.xgboost_trainer.TrainingProgress.from_environment"),
+        patch.object(
+            XGBoostTrainerImpl,
+            "run",
+            return_value={"onnx_path": "", "metrics": {}, "feature_columns": []},
+        ),
+    ):
+        run_training_with_config(
+            {
+                "data": {
+                    "type": "hive",
+                    "hive_sql": "SELECT feature, label FROM samples",
+                    "hive_auth": "LDAP",
+                }
+            }
+        )
+
+    kwargs = connector.read.call_args.kwargs
+    assert kwargs["host"] == "hive.env.internal"
+    assert kwargs["auth"] == "LDAP"
+    assert kwargs["password"] == "env-secret"
+
+
 def test_existing_callbacks_are_preserved_when_progress_is_enabled() -> None:
     callback = MagicMock()
     progress = MagicMock()

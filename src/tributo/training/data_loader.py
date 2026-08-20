@@ -90,6 +90,7 @@ def _load_database_dataset(kind: str, data_config: dict) -> "ray.data.Dataset":
             "database": os.getenv("TRIBUTO_HIVE_DB", "default"),
             "username": os.getenv("TRIBUTO_HIVE_USER", "default"),
             "password": os.getenv("TRIBUTO_HIVE_PASSWORD", ""),
+            "auth": os.getenv("TRIBUTO_HIVE_AUTH", "NONE"),
         }
         optional = (
             "batch_size",
@@ -104,11 +105,13 @@ def _load_database_dataset(kind: str, data_config: dict) -> "ray.data.Dataset":
     for canonical, default in defaults.items():
         legacy_name = legacy_aliases.get(canonical, canonical)
         canonical_value = data_config.get(canonical)
-        kwargs[canonical] = (
-            canonical_value
-            if canonical_value is not None
-            else data_config.get(f"{prefix}_{legacy_name}", default)
-        )
+        legacy_value = data_config.get(f"{prefix}_{legacy_name}")
+        if canonical_value is not None:
+            kwargs[canonical] = canonical_value
+        elif legacy_value is not None:
+            kwargs[canonical] = legacy_value
+        else:
+            kwargs[canonical] = default
     canonical_sql = data_config.get("sql")
     kwargs["sql"] = (
         canonical_sql

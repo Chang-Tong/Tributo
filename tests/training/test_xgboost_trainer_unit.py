@@ -99,6 +99,7 @@ class TestDataConfig:
             "hive_database": "warehouse",
             "hive_user": "reader",
             "hive_password": "secret",
+            "hive_auth": "LDAP",
             "hive_sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
             "hive_sql_params": {"tenant": "acme"},
             "hive_batch_size": 512,
@@ -123,6 +124,7 @@ class TestDataConfig:
             "database": "warehouse",
             "username": "reader",
             "password": "secret",
+            "auth": "CUSTOM",
             "sql": "SELECT id FROM events WHERE tenant=%(tenant)s",
             "params": {"tenant": "acme"},
             "sort_key": "id",
@@ -137,6 +139,16 @@ class TestDataConfig:
 
         for key, value in raw.items():
             assert dumped[key] == value
+
+    def test_unset_hive_credentials_remain_distinguishable_from_explicit_values(self):
+        config = DataConfig.model_validate({"type": "hive", "hive_auth": "ldap"})
+
+        assert config.auth is None
+        assert config.password is None
+        assert config.hive_auth == "LDAP"
+        assert config.hive_password is None
+        assert "hive_auth" in config.model_dump(exclude_unset=True)
+        assert "hive_password" not in config.model_dump(exclude_unset=True)
 
 
 class TestSetupFeatureSelection:
