@@ -230,6 +230,15 @@ class BrokerRuntime(ABC):
         """Validate and submit one broker message."""
         ...
 
+    def maintain(self) -> None:
+        """Run one bounded provider maintenance tick.
+
+        The default no-op keeps Broker API v1 runtimes source compatible.
+        Providers may override this hook for reconciliation or supervision
+        that must continue while the task stream is idle.
+        """
+        return None
+
     def close(self) -> None:
         """Release runtime resources."""
         self.consumer.close()

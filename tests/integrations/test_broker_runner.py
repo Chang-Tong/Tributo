@@ -9,7 +9,9 @@ from tributo.integrations.broker import Message, TaskDisposition, TaskOutcome
 from tributo.integrations.broker_runner import BrokerRunner, BrokerRunnerState
 
 
-def _runner(*outcomes: TaskOutcome):
+def _runner(
+    *outcomes: TaskOutcome,
+) -> tuple[BrokerRunner, MagicMock, MagicMock, MagicMock, Message]:
     message = Message("job-1", {}, delivery_id="7-0")
     consumer = MagicMock()
     consumer.poll.side_effect = [message] * len(outcomes)
@@ -48,6 +50,40 @@ def test_runner_recovers_pending_then_polls_handles_and_acks() -> None:
     consumer.ack.assert_called_once_with(message)
     consumer.retry.assert_not_called()
     assert runner.state is BrokerRunnerState.RUNNING
+
+
+def test_runner_ticks_runtime_maintenance_before_message_poll() -> None:
+    runner, _plugin, runtime, consumer, _message = _runner(
+        TaskOutcome(TaskDisposition.ACK)
+    )
+
+    assert runner.run_once() is True
+
+    runtime.maintain.assert_called_once_with()
+    consumer.poll.assert_called_once_with(5000)
+
+
+def test_runner_ticks_runtime_maintenance_during_idle_poll() -> None:
+    runner, _plugin, runtime, consumer, _message = _runner()
+    consumer.poll.side_effect = None
+    consumer.poll.return_value = None
+
+    assert runner.run_once() is False
+
+    runtime.maintain.assert_called_once_with()
+    consumer.poll.assert_called_once_with(5000)
+
+
+def test_maintenance_failure_reconnects_without_polling() -> None:
+    runner, _plugin, runtime, consumer, _message = _runner()
+    consumer.poll.side_effect = None
+    runtime.maintain.side_effect = ConnectionError("supervisor unavailable")
+
+    assert runner.run_once() is False
+
+    consumer.poll.assert_not_called()
+    runtime.close.assert_called_once_with()
+    assert runner.state is BrokerRunnerState.RECONNECTING
 
 
 def test_runner_leaves_retry_pending() -> None:

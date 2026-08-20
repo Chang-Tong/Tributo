@@ -99,6 +99,7 @@ class BrokerRunner:
             if self._clock() >= self._next_pending_recovery:
                 self._recover_pending_batches()
                 self._schedule_pending_recovery()
+            self.runtime.maintain()
             message = self.runtime.consumer.poll(self.poll_timeout_ms)
             if message is None:
                 # A full, successful idle poll demonstrates a stable
