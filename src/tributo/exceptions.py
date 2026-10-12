@@ -151,7 +151,7 @@ class BundleExportError(TributoError):
         self.execution_result = execution_result
 
 
-@PublicAPI(stability="beta")
+@PublicAPI(stability="stable")
 class BundleCommitBusyError(TributoError):
     """A bundle commit is temporarily blocked by another active writer.
 
@@ -161,12 +161,12 @@ class BundleCommitBusyError(TributoError):
     retryable = True
 
 
-@PublicAPI(stability="beta")
+@PublicAPI(stability="stable")
 class AliasConflict(TributoError):
     """Alias CAS update failed — concurrent modification detected."""
 
 
-@PublicAPI(stability="beta")
+@PublicAPI(stability="stable")
 class UnsupportedArtifactFormat(TributoError):
     """Consumer does not support this artifact format or flavor.
 
@@ -214,66 +214,6 @@ class PluginLoadIssue(TributoError):
         self.reason = reason
         self.original_exception = exc
         super().__init__(f"Plugin {group!r}/{entry_point_name!r}: {reason}")
-
-
-# ── Streaming exceptions (fail-closed safety baseline) ──────────────────────
-
-
-@PublicAPI(stability="beta")
-class StreamSourceError(TributoError):
-    """Base class for streaming source failures.
-
-    Raised when a stream source cannot guarantee its delivery semantics —
-    e.g. an offset commit fails or a poisoned message cannot be skipped
-    safely.  Carries the partition coordinates when available.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        topic: str | None = None,
-        partition: int | None = None,
-        offset: int | None = None,
-    ) -> None:
-        self.topic = topic
-        self.partition = partition
-        self.offset = offset
-        super().__init__(message)
-
-
-@PublicAPI(stability="beta")
-class KafkaCommitError(StreamSourceError):
-    """Kafka offset commit failed.
-
-    The pending batch offsets are retained — the caller may retry
-    ``commit()``; they are cleared only after a successful commit.
-    """
-
-
-@PublicAPI(stability="beta")
-class KafkaPoisonMessageError(StreamSourceError):
-    """A Kafka record could not be decoded or validated (fail-closed).
-
-    Raised instead of skipping the record: the source stops rather than
-    silently dropping data.  ``reason`` describes the rejection:
-    ``"message_error"``, ``"tombstone"``, ``"decode"``, ``"non_dict"``
-    on the offending record, or ``"terminated"`` when a fresh
-    ``poll()`` is attempted after a poison record already stopped the
-    source.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        topic: str | None = None,
-        partition: int | None = None,
-        offset: int | None = None,
-        reason: str | None = None,
-    ) -> None:
-        self.reason = reason
-        super().__init__(message, topic=topic, partition=partition, offset=offset)
 
 
 # ── Training resource safety ─────────────────────────────────────────────────

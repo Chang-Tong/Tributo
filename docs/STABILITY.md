@@ -32,7 +32,6 @@ This page provides module-level guidance and deprecation notes.
 | `tributo.exceptions` — core exceptions | `stable` | ``TributoError`` and 16 common subtypes |
 | `tributo.exceptions` — `ResultMaterializationError` | `alpha` | Credential-safe lazy inference action failure |
 | `tributo.exceptions` — Bundle/Plugin exceptions | `beta` | ``BundleExportError``, ``BundleCommitBusyError``, ``AliasConflict``, ``UnsupportedArtifactFormat``, ``PostPublishCallbackError``, ``PluginLoadIssue`` |
-| `tributo.exceptions` — Streaming exceptions | `beta` | ``StreamSourceError``, ``KafkaCommitError``, ``KafkaPoisonMessageError`` |
 | `tributo.exceptions` — `EngineNotAvailableError` | `alpha` | Candidate bounded-ingestion error |
 | `tributo.cli` | `beta` | Command-line interface |
 
@@ -45,7 +44,7 @@ covered by the external `runtime-image` suite.
 | Surface | Level | Notes |
 |--------|-------|-------|
 | `tools/build_tributo_image.py` | `alpha` | JSON-only Buildx builder for the pinned image validated for CPU execution by default, with explicit `linux/amd64`/`linux/arm64` targeting; it performs dependency-closure discovery, manifest sealing, and fail-closed import checks |
-| `tools/tributo-runtime-full.json` | `alpha` | Multi-architecture pinned Ray/uv image references, native-platform default, complete first-party runtime-extra closure including locked v1.0 Daft ClickHouse/Doris and Ray Doris connectors plus `ray-hive`; optional external wheelhouse support supplies `ray-clickhouse==0.1.0` until PyPI publication |
+| `tools/tributo-runtime-full.json` | `alpha` | Multi-architecture pinned Ray/uv image references, native-platform default, complete first-party runtime-extra closure including locked v1.0 Daft Doris and Ray Doris connectors plus `ray-hive`; optional external wheelhouse support can supply `ray-clickhouse==1.0`, which remains outside the Tributo lockfile |
 | `manifest.json` / `image-profile.json` | `alpha` | Build attestations consumed for immutable image selection and algorithm artifact compatibility; not a registry or deployment API |
 
 ### Training (tributo.training.*)
@@ -93,6 +92,7 @@ from the legacy setup-only propagation rule.
 | `tributo.algorithms.api.artifacts` | `alpha` | Algorithm Wheel/Bundle distribution and immutable image Profile contracts |
 | `tributo.algorithms.api.distribution` | `alpha` | Versioned distributed strategy, profile, resource, and coordination declarations |
 | `tributo.algorithms.api.execution` | `alpha` | Formal execution request and immutable worker/node/shard receipt evidence |
+| `tributo.algorithms.api.graph` | `alpha` | Partitioned graph input, sampling, batch, reader, and execution evidence contracts |
 | `tributo.algorithms.api.descriptor` | `alpha` | Trusted installed-package distributed algorithm descriptor API v1 |
 | `tributo.algorithms.api.context` — `UserExecutionContext` | `alpha` | Restricted context for trusted module-qualified Worker functions |
 | `tributo.algorithms.api.errors` | `alpha` | Portable execution error taxonomy |
@@ -112,7 +112,8 @@ from the legacy setup-only propagation rule.
 
 | Module | Level | Notes |
 |--------|-------|-------|
-| `tributo.data.source_config` — `SourceConfig` | `beta` | Strict in-memory contract; JSON is the built-in persisted format |
+| `tributo.data.source_config` — canonical models and projection helpers | `stable` | Stable fields, defaults, JSON shapes, and projection semantics; `BuiltinSourceConfig`, `SourceConfig`, and `CanonicalSourceInput` use the same stable members |
+| `tributo.data.source_config` — legacy conversion and `RawSourceConfig` | `beta` | Compatibility input conversion and unknown-source passthrough |
 | `tributo.data.provider` — `DataSourceProvider` | `beta` | Logical normalization/planning contract; `normalize()` and `plan()` drive canonical ingestion, while `open()`/`DatasetHandle` remain an independent Provider SPI |
 | `tributo.data.transform_ir` | `alpha` | Versioned engine-neutral ETL contract |
 | `tributo.data.transform_compiler` | `developer` | Internal Ray/Daft expression translation |
@@ -121,7 +122,7 @@ from the legacy setup-only propagation rule.
 | `tributo.data.handle_adapters` | `alpha` | Explicit native-handle conversions with conversion evidence; never a routing fallback |
 | `tributo.data.contracts.handles` | `alpha` | Typed Ray and Daft handle contracts shared by ingestion and writing |
 | `tributo.data.contracts.modes` | `beta` | Canonical shared `WriteMode` contract; `tributo.data.base` remains a narrow re-export |
-| `tributo.data.contracts.storage` | `beta` | Canonical shared `S3Config` contract; credentials are hidden from repr and identity material |
+| `tributo.data.contracts.storage` | `stable` | Canonical shared `S3Config` contract; credentials are hidden from repr and identity material |
 | `tributo.data.writing` | `alpha` | Unified bounded-write Gateway package |
 | `tributo.data.writing.capabilities` | `alpha` | Native writer capability declarations |
 | `tributo.data.writing.contracts` | `alpha` | Credential-safe write requests, descriptors, receipts, and errors |
@@ -133,7 +134,14 @@ from the legacy setup-only propagation rule.
 | `tributo.data.graph` | `beta` | Graph data abstraction (GNN; @PublicAPI says beta) |
 | `tributo.data.base` | `legacy` | Narrow compatibility re-export for `S3Config` and `WriteMode`; no reader, writer, registry, or Connector class |
 | `tributo.data.provider_registry` | `beta` | Data source provider registry |
-| `tributo.data.refs` | `beta` | Data reference value objects |
+| `tributo.data.refs` | `stable` | DatasetRef fields, canonical JSON digest, version-1 source identity, and Arrow schema fingerprint |
+
+Canonical configuration stability does not imply that a Provider, Gateway,
+Binding, database, or engine combination is stable or supported. Provider
+options retain their provider-owned meaning. Credentials belong to trusted
+configuration only: repr hides designated credential fields, while model dumps
+and validation details must be sanitized before public logging. DatasetRef and
+source identity reject credential material rather than persist it.
 
 ### Distributed Lance vector indexing (tributo.vector_index.*)
 
@@ -149,25 +157,67 @@ from the legacy setup-only propagation rule.
 | Module | Level | Notes |
 |--------|-------|-------|
 | `tributo.exporting.service` — `BundleExportService` | `beta` | Primary export orchestration |
-| `tributo.exporting.models` — all public models | `beta` | Configuration, artifact, canonical Bundle reference, and exact publication result models |
+| `tributo.exporting.models` — core storage values | `stable` | AliasConfig, artifact/producer/reference/validation values, execution/failure results, BundleResult, BundleRef, ResolvedArtifact, and PublishedBundle |
+| `tributo.exporting.models` — `PluginLoadDiagnostic` | `stable` | Flavor/plugin discovery diagnostic value fields |
+| `tributo.exporting.models` — export configuration and Hook values | `beta` | Exporter orchestration and Hook payloads retain independent contracts |
 | `tributo.exporting.protocols` — all protocols | `beta` | Exporter/Validator/SourceProvider contracts |
-| `tributo.exporting.manifest` — `ExportManifest` | `beta` | Bundle manifest (schema v1) |
-| `tributo.exporting.bundle_reader` — `BundleReader` | `beta` | Repository-routed Bundle consumption with exact manifest-byte and artifact verification |
+| `tributo.exporting.manifest` — schema-v1 models and registry | `stable` | Source info, typed signatures, execution records, ExportManifest, and schema reader registration |
+| `tributo.exporting.manifest` — `ExportManifestV2` and `compute_bundle_digest` | `beta` | Explainability extension and compatibility digest helper |
+| `tributo.exporting.bundle_reader` — `BundleReader` | `stable` | Repository-routed Bundle consumption with exact manifest-byte and artifact verification |
 | `tributo.exporting.planner` | `beta` | Export plan builder |
 | `tributo.exporting.executor` | `beta` | Export executor |
-| `tributo.exporting.publisher` | `beta` | Bundle publisher |
+| `tributo.exporting.publisher` | `stable` | Local/file/S3 core publication; the optional Explainability parameter remains Alpha |
 | `tributo.exporting.validators` | `beta` | Artifact validator runner |
-| `tributo.exporting.registries` | `beta` | Exporter/validator registries |
+| `tributo.exporting.registries` — `FlavorRegistry` | `stable` | Flavor registration, lookup, and diagnostics |
+| `tributo.exporting.registries` — exporter/source/validator/factory registries | `beta` | Exporter and model-factory orchestration |
 | `tributo.exporting.options` | `beta` | Compatibility re-exports; schemas are owned by integration exporters |
 | `tributo.exporting.records` | `beta` | Export record types; `PublicationAttempt` is read-only legacy compatibility and receives no new writes |
 | `tributo.exporting.gc` | `beta` | Bundle GC |
 | `tributo.exporting.events` | `beta` | Immutable publication event contract |
 | `tributo.exporting.hooks` | `beta` | Adapter and committed-artifact access contracts |
 | `tributo.exporting.dispatch` | `beta` | Inline Hook dispatch policy |
-| `tributo.exporting.capabilities` | `beta` | Exporter/Flavor-derived capability declarations |
-| `tributo.exporting.repository` | `beta` | Bundle repository and alias store ports |
-| `tributo.exporting.runtime` | `beta` | Bundle model runtime and Flavor protocol |
+| `tributo.exporting.capabilities` | `stable` | Capability value structure, discovery projection, and lookup; plugin declarations do not prove execution support |
+| `tributo.exporting.repository` | `stable` | Bundle repository/alias ports and their value objects; internal routing remains DeveloperAPI |
+| `tributo.exporting.runtime` | `stable` | Bundle model protocols, loader/runtime, and support entries; first-party executable guarantee is scoped to onnx-runtime-v1 |
 | `tributo.exporting.conftest` | `beta` | Public plugin conformance test kit |
+
+The Stable storage model allowlist is `AliasConfig`, `ArtifactFile`,
+`ProducerInfo`, `ArtifactRef`, `LogicalArtifact`, `ResolvedArtifact`,
+`FailureInfo`, `NodeResult`, `ExportExecutionResult`, `BundleResult`, `BundleRef`,
+`PublishedBundle`, and `ValidationResult`. The Stable manifest allowlist is
+`ManifestSourceInfo`, `SignatureField`, `ManifestSignature`,
+`ManifestExecutionNode`, `ManifestExecution`, `ExportManifest`, and
+`ManifestSchemaRegistry`. `BundleCommitBusyError` and `AliasConflict` are Stable
+storage errors. The high-level `export`, `ExportSpec`, and `load_bundle`
+compatibility facade remain Beta.
+
+The Stable promise covers the core storage operation and fields. Passing Alpha
+`ExplainabilityConfig` opts into its independent contract, and
+`ExportManifestV2` remains Beta. `BundleResult.hook_receipts` keeps the Beta
+`HookReceipt` payload; Hook delivery and orchestration do not become Stable.
+Developer router/assembler injection remains an advanced extension with its
+existing constructor parameters. No signature or extension payload is removed.
+
+`ResolvedArtifact` paths are valid inside their materialization context.
+`PublishedBundle.local_dir_ephemeral` distinguishes transient S3 staging from
+persistent local publication. Ephemeral paths belong to the staging owner;
+BundleExportService guarantees their callback window. Consumers persist
+`BundleRef` or `BundleResult.canonical_uri` instead of transient local paths.
+
+The Stable Runtime scope includes `BundleReaderLike`, `BundleModel`,
+`BundleModelFlavor`, `FlavorSupportEntry`, `BundleModelLoader`,
+`BundleModelRuntime`, and `ONNXRuntimeFlavor`. `FlavorRegistry`,
+`ArtifactCapability`, `CapabilityRegistry`, `get_default_capability_registry`,
+`PluginLoadDiagnostic`, and `UnsupportedArtifactFormat` complete its public
+routing and diagnostic contracts. Exporter/validator/factory registries,
+optional dependency internals, other flavors, Ray Data batch orchestration,
+and HTTP/gRPC/SSE transports keep their existing levels.
+
+Runtime `close()` releases reader resources exactly once; it does not unload
+an in-memory ONNX session. ONNX prediction remains valid after close. Loading
+and signature-validation failures close the artifact context before propagating.
+The loaded Runtime keeps the validated manifest bytes and role-bound artifact;
+custom Flavor execution follows its own declared contract.
 
 ### Explainability (tributo.explainability.*)
 
@@ -198,7 +248,7 @@ from the legacy setup-only propagation rule.
 | `tributo.integrations.exporters.*` | `beta` | Built-in exporter implementations |
 | `tributo.integrations.exporters.x_learner` | `alpha` | Fixed X-Learner model and causal-report exporter adapters |
 | `tributo.integrations.flavors` | `beta` | Built-in runtime flavor package |
-| `tributo.integrations.flavors.onnx_runtime` | `beta` | ONNX Runtime flavor implementation |
+| `tributo.integrations.flavors.onnx_runtime` | `stable` | onnx-runtime-v1 named-tensor loading, prediction, and reader-resource lifetime |
 | `tributo.integrations.validators` | `beta` | Built-in validator package |
 | `tributo.integrations.validators.*` | `beta` | Built-in validator implementations |
 | `tributo.integrations.sources` | `beta` | Built-in source provider package |
@@ -254,19 +304,6 @@ from the legacy setup-only propagation rule.
 | `tributo.serving.proto.*` | `developer` | Generated protobuf code |
 | `tributo.serving.proto` | `developer` | Generated protobuf package |
 
-### Streaming (tributo.streaming.*)
-
-| Module | Level | Notes |
-|--------|-------|-------|
-| `tributo.streaming.protocol` — `StreamSource` | `beta` | Streaming protocol |
-| `tributo.streaming.kafka_source` | `alpha` | Kafka source (fail-closed safety baseline: commit retention, poison-message stop, uncommitted-batch barrier) |
-
-### Pipeline (tributo.pipeline.*)
-
-| Module | Level | Notes |
-|--------|-------|-------|
-| `tributo.pipeline.core` | `alpha` | Pipeline orchestration |
-
 ### Registry (tributo.registry.*)
 
 | Module | Level | Notes |
@@ -293,7 +330,7 @@ from the legacy setup-only propagation rule.
 
 | Module | Level | Notes |
 |--------|-------|-------|
-| `tributo._common.storage_profiles` | `beta` | Storage profile resolution |
+| `tributo._common.storage_profiles` | `stable` | S3 profile values, named/default resolution, and credential-safe diagnostics |
 | `tributo._common.dependencies` | `beta` | Unified dependency probing layer |
 | `tributo._common` | `developer` | Internal shared package |
 | All other `tributo._common.*` | `developer` | Internal shared utilities |
@@ -337,10 +374,8 @@ This is informative only — `STABILITY.md` is the canonical reference.
 
 - `tributo.data.transform_ir` — versioned engine-neutral ETL contract
 - `tributo.data.ingestion` — candidate dual-engine ingestion API
-- `tributo.pipeline.core` — "Alpha; lightweight in-process DAG executor"
 - `tributo.training.graph_trainer` — "Alpha; GNN training"
 - `tributo.serving.streaming_deployment` — "Alpha; streaming inference service"
-- `tributo.streaming.kafka_source` — "Alpha; Kafka source"
 
 ### Marked as beta
 

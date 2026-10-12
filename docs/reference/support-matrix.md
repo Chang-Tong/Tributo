@@ -42,13 +42,14 @@ endpoint.
 
 | Capability | Status | Boundary |
 | --- | --- | --- |
+| Canonical source configuration and DatasetRef identity | Stable | Existing JSON shapes, fields, defaults, projection, and identity version 1; Provider/Gateway/Binding execution and provider-private options keep their own contracts |
 | Local/S3 Parquet and CSV reads | Verified | Native Ray Data or Daft handle through one Gateway |
 | Local/S3 Iceberg reads | Verified | Built-in bindings use PyIceberg `>=0.11.1,<0.12.0` with `PyArrowFileIO`; Ray may push `row_filter` into the scan, Daft applies it as a lazy residual filter, and empty-table schema is preserved from Iceberg metadata; broader Catalog/delete-file matrix remains gated |
 | Local/S3 Lance reads | Verified | Native Ray Data or Daft table reader; numeric versions and tags are supported, Daft also supports as-of, and Iceberg snapshot references fail closed |
 | PostgreSQL structured table reads | Verified | Ray uses a single public SQL read and fails closed on parallel shard requirements; Daft may use native partition hints |
 | ClickHouse/Doris raw SQL | Unsupported | Legacy shapes return a credential-free migration error; use structured table input or execute SQL outside Tributo ingestion |
 | HDFS Parquet/CSV reads | Adapter only | Ray binding exists; real HDFS/JVM/worker gate is pending |
-| ClickHouse reads | Adapter only | Daft uses locked `daft-clickhouse==1.0`; Ray uses the separately installed `ray-clickhouse==0.1.0` wheel and delegates single, physical-partition, integer-range, and bounded Arrow block behavior to it. Real-database Tributo Conformance is still required |
+| ClickHouse reads | Adapter only | Ray uses the separately installed `ray-clickhouse==1.0` package from PyPI and delegates single, physical-partition, integer-range, and bounded Arrow block behavior to it. Real-database Tributo Conformance is still required |
 | Doris reads | Adapter only | Ray routes use locked `ray-doris==1.0`; Daft routes use locked `daft-doris==1.0`; real-database Conformance is still required and tablet planning remains provider/binding-owned |
 | HiveServer2 structured table reads | Alpha, verified | `ProviderSourceConfig(provider="tributo.hive", uri="hive://host:port/database/table")` routes only to the Ray `tributo.ray.hive` Binding and locked `ray-hive==1.0`; Hive 4.2.0 Conformance verifies projection, schema, worker execution, and binary NOSASL transport. Raw SQL, Daft Hive, HTTP, TLS, Kerberos, and Hive writes are outside this contract |
 | Native ORC file reads | Unsupported | Tributo does not implement an ORC reader. The verified Hive fixture is ORC-backed, but HiveServer2 and `ray-hive` own its SQL execution and decoding; this is not HDFS or file-level ORC support |
@@ -87,9 +88,8 @@ which is tested locally rather than installed by Tributo's GitHub CI.
 | Portable distributed execution | Alpha | Explicit collective, framework-native, and bounded tree-MapReduce strategies; owned local and attached cluster profiles share one contract |
 | Constrained algorithm descriptor SPI | Alpha | Trusted packages from the selected image or a validated Job artifact; no arbitrary dependency resolution, isolation, hot reload, or PluginManager lifecycle |
 | Algorithm Wheel distribution | Alpha | Image Profiles plus code-only `py_modules` Wheels by default; opt-in offline Wheelhouse installs use `--no-index`, an attested manifest, and the existing entry-point registry. No online dependency resolution or untrusted-code sandbox is provided |
-| Graph training | Alpha skeleton | No built-in PyG/DGL trainer |
+| Graph training | Alpha Core data path | Core provides partitioned Ray graph reads and seed mini-batches for static homogeneous node tasks; no built-in PyG/DGL trainer, and the external GraphSAGE/R-GCN Wheel remains full-batch until separately migrated |
 | X-Learner causal estimation | Alpha, conformance-tested | Binary treatment/outcome, numeric tabular features, deterministic 5-fold cross-fitting over five native Ray Train XGBoost stages, causal report, and batch CATE inference; priority multi-node Gate passed, while the full 27-record Gate remains pending |
-| Streaming user recovery decisions | Not implemented | Kafka source remains separate; no recovery algorithm or source-to-sink runtime is planned by the algorithm-module refactor |
 
 The tabular DNN, PU, and XGBoost legacy Trainer implementations remain
 available to Beta compatibility APIs while their native distributed
@@ -103,9 +103,11 @@ matrix are generated from the same Registry projection.
 
 | Capability | Status | Boundary |
 | --- | --- | --- |
-| Local and `file://` bundle publication | Beta | Manifest and digest validation |
-| S3 bundle publication | Beta | Manifest-last and alias compare-and-set |
+| Local and `file://` bundle publication | Stable | Core Publisher/repository contracts, immutable identity, manifest and digest validation; Explainability and Hook extensions retain their own levels |
+| S3 bundle publication | Stable | Core Publisher/repository contracts, manifest-last, leases, idempotency, and alias compare-and-set |
+| Bundle manifest/artifact reading and integrity | Stable | BundleReader, schema-v1 fields, exact committed bytes, digest/identity checks, bounded materialization, and context lifetime; extension payload semantics are independent |
 | HDFS bundle publication | Not implemented | Storage backend extension |
+| ONNX Bundle model loading and prediction | Stable | BundleModelLoader/Runtime and onnx-runtime-v1 only: named tensors, typed signatures, integrity/security gates, and reader-resource lifetime; transport and orchestration levels are separate |
 | Ray Data batch inference | Beta | Actor-based model reuse |
 | Batch output to local/S3 Parquet | Implemented | Database sinks are separate |
 | Batch explainability | Alpha | Optional SHAP adapter over a declared Bundle role; batch-only Ray ingestion and bounded Parquet results |
@@ -141,8 +143,6 @@ tensors; it does not apply DNN/PU preprocessing implicitly.
 | ONNX HTTP serving | Beta | Ray Serve |
 | gRPC serving | Beta | Install the `grpc` extra |
 | LLM SSE serving | Alpha | Streaming service contract |
-| Kafka source | Alpha | Fail-closed microbatch source |
-| Kafka-to-inference service loop | Not built in | Requires explicit orchestration and sink |
 
 ## Vector indexing
 
@@ -171,9 +171,9 @@ tensors; it does not apply DNN/PU preprocessing implicitly.
 | Capability | Status | Boundary |
 | --- | --- | --- |
 | Full Tributo runtime image for CPU validation | Alpha, directly buildable | Linux `arm64`/`amd64`, defaulting to the native host architecture; Python 3.12, Ray 2.55.1, locked dependency closure, and all first-party runtime extras including Alpha modules. Linux PyTorch resolution may include transitive CUDA/NVIDIA distributions, but no GPU support is claimed |
-| Custom connector wheelhouse variant | Alpha, optional extension | An external wheelhouse remains available for packages outside the locked connector set and is currently required for `ray-clickhouse==0.1.0`; it does not change the Tributo lockfile |
+| Custom connector wheelhouse variant | Alpha, optional extension | An external wheelhouse remains available for packages outside the locked connector set, including `ray-clickhouse==1.0` for image builds; it does not change the Tributo lockfile |
 | Runtime image attestation | Alpha | `manifest.json`, `image-profile.json`, normalized distribution inventory, and sealed `org.tributo.manifest-sha256` label |
-| Runtime image Ray Jobs gate | Alpha, validation gate | Requires a unique two-node Docker Ray cluster on a native host architecture; verifies driver/worker imports, Ray Data, Jobs API submission, and v1.0 ClickHouse/Doris/Ray Hive package presence. `linux/amd64` requires a matching native host |
+| Runtime image Ray Jobs gate | Alpha, validation gate | Requires a unique two-node Docker Ray cluster on a native host architecture; verifies driver/worker imports, Ray Data, Jobs API submission, and the ClickHouse driver plus v1.0 Doris/Ray Hive connector package presence. `linux/amd64` requires a matching native host |
 | GPU runtime image | Not implemented | The Linux dependency closure may contain transitive CUDA/NVIDIA distributions from PyTorch, but no GPU driver, scheduling, NCCL, or GPU compatibility contract has been validated |
 | HiveServer2 Runtime | Alpha, validation gate | `ray-hive==1.0` is locked into the full image and selected by the built-in Ray Hive Binding; the Data Ingestion Gate verifies Hive 4.2.0 on a worker. HDFS and native ORC readers remain outside this runtime contract |
 

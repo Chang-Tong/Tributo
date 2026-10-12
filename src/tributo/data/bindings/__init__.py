@@ -27,12 +27,8 @@ _RAY_INSTALL_HINT = "pip install 'ray[default,serve,tune]==2.55.1'"
 _DAFT_INSTALL_HINT = "pip install 'tributo[data-daft]'"
 _DAFT_LANCE_INSTALL_HINT = "pip install 'tributo[data,data-daft]'"
 _DATA_INSTALL_HINT = "pip install 'tributo[data]'"
-_DAFT_CLICKHOUSE_INSTALL_HINT = (
-    "Install daft-clickhouse==1.0 with Tributo: "
-    "pip install 'tributo[clickhouse]' (or uv sync --extra clickhouse)"
-)
 _RAY_CLICKHOUSE_INSTALL_HINT = (
-    "Install the ray-clickhouse==0.1.0 wheel, then install Tributo's "
+    "Install ray-clickhouse==1.0, then install Tributo's "
     "ClickHouse dependencies with pip install 'tributo[clickhouse]'"
 )
 _DAFT_DORIS_INSTALL_HINT = (
@@ -281,29 +277,6 @@ def _daft_lance_descriptor() -> BindingDescriptor:
     )
 
 
-def _daft_clickhouse_descriptor() -> BindingDescriptor:
-    from tributo.data.bindings.daft_clickhouse import DaftClickHouseBinding
-
-    return BindingDescriptor(
-        key=BindingKey(
-            "tributo.daft",
-            ScanKind.SQL,
-            "clickhouse",
-            "daft_clickhouse.daft.clickhouse",
-        ),
-        factory=DaftClickHouseBinding,
-        capabilities=frozenset({SourceCapability.PROJECTION}),
-        distribution_name="daft-clickhouse",
-        distribution_version=_distribution_version("daft-clickhouse") or "1.0",
-        engine_version_spec=_DAFT_SQL_VERSION_SPEC,
-        dependency_distributions=("clickhouse-connect",),
-        supported_read_hints=frozenset(
-            {ReadHint.TARGET_PARALLELISM, ReadHint.BATCH_SIZE}
-        ),
-        install_hint=_DAFT_CLICKHOUSE_INSTALL_HINT,
-    )
-
-
 def _ray_clickhouse_descriptor() -> BindingDescriptor:
     from tributo.data.bindings.ray_clickhouse import RayClickHouseBinding
 
@@ -317,7 +290,7 @@ def _ray_clickhouse_descriptor() -> BindingDescriptor:
         factory=RayClickHouseBinding,
         capabilities=frozenset({SourceCapability.PROJECTION}),
         distribution_name="ray-clickhouse",
-        distribution_version=_distribution_version("ray-clickhouse") or "0.1.0",
+        distribution_version=_distribution_version("ray-clickhouse") or "1.0",
         engine_version_spec=_RAY_VERSION_SPEC,
         dependency_distributions=("clickhouse-connect", "pyarrow"),
         supported_read_hints=frozenset(
@@ -674,20 +647,6 @@ def default_engine_bindings() -> EngineBindings:
                 ("pylance", "daft-lance"),
             ),
             (
-                _daft_clickhouse_descriptor,
-                BindingKey(
-                    "tributo.daft",
-                    ScanKind.SQL,
-                    "clickhouse",
-                    "daft_clickhouse.daft.clickhouse",
-                ),
-                "daft",
-                _DAFT_SQL_VERSION_SPEC,
-                _DAFT_CLICKHOUSE_INSTALL_HINT,
-                None,
-                ("daft-clickhouse", "clickhouse-connect"),
-            ),
-            (
                 _ray_clickhouse_descriptor,
                 BindingKey(
                     "tributo.ray_data",
@@ -700,7 +659,7 @@ def default_engine_bindings() -> EngineBindings:
                 _RAY_CLICKHOUSE_INSTALL_HINT,
                 None,
                 (
-                    ("ray-clickhouse", "==0.1.0"),
+                    ("ray-clickhouse", "==1.0"),
                     ("clickhouse-connect", ">=1.5,<1.6"),
                     ("pyarrow", ">=19,<20"),
                 ),

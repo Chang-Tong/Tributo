@@ -7,6 +7,16 @@
   },
   "path_rules": [
     {
+      "name": "dependency-closure",
+      "patterns": ["pyproject.toml", "uv.lock"],
+      "domains": ["code", "docs", "storage", "dependencies"]
+    },
+    {
+      "name": "causal-dependency-tests",
+      "patterns": ["tests/integration/test_dowhy_scipy_compat.py"],
+      "domains": ["code", "storage", "dependencies"]
+    },
+    {
       "name": "ci-policy",
       "patterns": [
         ".github/workflows/**",
@@ -170,6 +180,33 @@
       "markers": ["ci_safe"],
       "log_contract": "pytest terminal output; skips and missing JUnit evidence fail the suite",
       "rationale": "Dedicated bounded shard for integration-named modules that exercise local contracts without external infrastructure."
+    },
+    {
+      "id": "causal-dependency-contract",
+      "owner": "training",
+      "domain": "dependencies",
+      "tier": "ci_fast",
+      "workflow": "matrix",
+      "owns_tests": true,
+      "entrypoint": ["python", "-m", "pytest"],
+      "args": [
+        "tests/integration/test_dowhy_scipy_compat.py",
+        "-o",
+        "addopts=",
+        "-q",
+        "--tb=short"
+      ],
+      "extras": ["dev", "causal"],
+      "test_paths": ["tests/integration/test_dowhy_scipy_compat.py"],
+      "trigger_domains": ["dependencies"],
+      "trigger_paths": [],
+      "requires": [],
+      "budget_seconds": 180,
+      "ci_allowed": true,
+      "forbid_skips": true,
+      "markers": ["ci_safe"],
+      "log_contract": "pytest output and JUnit evidence with no dependency skips",
+      "rationale": "Bounded real DoWhy estimation, refutation, and GCM calls validate the locked SciPy closure without services."
     },
     {
       "id": "runtime-image",
@@ -362,7 +399,6 @@
         "tests/inference",
         "tests/registry",
         "tests/serving",
-        "tests/streaming",
         "tests/vector_index",
         "-o",
         "addopts=",
@@ -431,6 +467,42 @@
       "forbid_skips": true,
       "log_contract": "/tmp/tributo-it-logs/<project>-test.log and services.log",
       "rationale": "Distributed Ray Data and Daft semantics require the owned Docker Ray cluster."
+    },
+    {
+      "id": "hdfs-ingestion-cluster",
+      "owner": "data",
+      "domain": "data",
+      "tier": "manual_external",
+      "workflow": "external",
+      "owns_tests": true,
+      "entrypoint": ["./scripts/run_hdfs_ingestion_it.sh"],
+      "args": [],
+      "extras": [],
+      "test_paths": [
+        "scripts/run_hdfs_ingestion_it.sh",
+        "tests/integrations/test_hdfs_ingestion.py"
+      ],
+      "trigger_domains": [],
+      "trigger_paths": [
+        "src/tributo/data/**",
+        "tests/data/test_source_bindings.py",
+        "tests/integrations/Dockerfile.data-ingestion-hdfs",
+        "tests/integrations/docker-compose.data-ingestion.yml",
+        "tests/integrations/hdfs/**",
+        "tests/integrations/setup_hdfs_fixture.py",
+        "tests/integrations/test_hdfs_ingestion.py",
+        "tests/integrations/runtime-profiles.json",
+        "scripts/run_hdfs_ingestion_it.sh",
+        "tools/tributo_it.py",
+        "pyproject.toml",
+        "uv.lock"
+      ],
+      "requires": ["docker", "multi_node_ray", "minio", "hdfs"],
+      "budget_seconds": 1800,
+      "ci_allowed": false,
+      "forbid_skips": true,
+      "log_contract": "/tmp/tributo-it-logs/<project>-test.log and services.log",
+      "rationale": "HDFS native/fallback transport and Ray worker evidence require one isolated Docker Ray cluster."
     },
     {
       "id": "lance-vector-cluster",
@@ -797,7 +869,6 @@
       "trigger_domains": [],
       "trigger_paths": [
         "src/tributo/serving/**",
-        "src/tributo/streaming/**",
         "tests/integrations/test_e2e_streaming.py",
         "tests/serving/test_grpc_integration.py",
         "tests/serving/test_streaming_integration.py"
