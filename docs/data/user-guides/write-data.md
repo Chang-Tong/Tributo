@@ -23,7 +23,7 @@ boundary.
 
 ## Append a Ray Dataset to ClickHouse
 
-Install the external `ray-clickhouse==0.1.0` wheel, then use the same
+Install the external `ray-clickhouse==1.0` wheel, then use the same
 `WriteGateway` boundary as other native writers. The target URI must contain no
 credentials. Pass the password as an environment-variable reference so it does
 not enter plans, digests, receipts, or logs.

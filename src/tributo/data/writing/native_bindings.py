@@ -64,7 +64,7 @@ def _ray_descriptor(
         dependency_distributions=dependencies,
         capabilities=capabilities,
         installation_hint=(
-            "Install the ray-clickhouse==0.1.0 wheel"
+            "Install the ray-clickhouse==1.0 wheel"
             if target_kind == "clickhouse"
             else None
         ),
@@ -334,7 +334,7 @@ class RayClickHouseWriteBinding:
     @staticmethod
     def is_available() -> bool:
         try:
-            return importlib.metadata.version("ray-clickhouse") == "0.1.0"
+            return importlib.metadata.version("ray-clickhouse") == "1.0"
         except importlib.metadata.PackageNotFoundError:
             return False
 

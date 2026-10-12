@@ -93,10 +93,10 @@ def test_clickhouse_binding_declares_append_only_native_contract() -> None:
 def test_clickhouse_binding_requires_the_supported_connector_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0.1.0")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "1.0")
     assert RayClickHouseWriteBinding.is_available() is True
 
-    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0.2.0")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0.1.0")
     assert RayClickHouseWriteBinding.is_available() is False
 
 
