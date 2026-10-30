@@ -846,10 +846,10 @@ def check_commit_messages(root: str) -> list[str]:
         first_line = msg.strip().split("\n")[0]
 
         # 3a: Signed-off-by
-        if "Signed-off-by: jiangxt2" not in msg:
+        if not re.search(r"^Signed-off-by: [^<]+ <[^>]+>$", msg, re.MULTILINE):
             issues.append(
                 f"FAIL: Commit {short} missing "
-                f"'Signed-off-by: jiangxt2 <jiangxt2@vip.qq.com>'"
+                "a valid 'Signed-off-by: Your Name <email@example.com>' line"
             )
 
         # 3b: format check — accept [component] or Conventional Commits

@@ -346,3 +346,43 @@ def test_docs_ci_runs_ci_commands_and_reports_spelling_failure(
         ["make", "strict", f"SPHINXBUILD={sphinx_build}"],
         ["make", "spelling", f"SPHINXBUILD={sphinx_build}"],
     ]
+
+
+@pytest.mark.parametrize(
+    "trailer,accepted",
+    [
+        ("Signed-off-by: Contributor One <one@example.com>", True),
+        ("Signed-off-by: Another Contributor <two@example.org>", True),
+        ("", False),
+        ("Signed-off-by: Contributor One", False),
+        ("Signed-off-by: <one@example.com>", False),
+        ("Body text Signed-off-by: Contributor One <one@example.com>", False),
+    ],
+)
+def test_commit_signoff_matches_ci_without_a_fixed_contributor(
+    tmp_path: Path, trailer: str, accepted: bool
+) -> None:
+    precheck = _load_precheck()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True
+        )
+
+    git("init", "-q")
+    git("config", "user.name", "Test Contributor")
+    git("config", "user.email", "test@example.com")
+    git("config", "commit.gpgsign", "false")
+    git("commit", "--allow-empty", "-qm", "test: baseline")
+    git("update-ref", "refs/remotes/upstream/master", "HEAD")
+    message = "test: validate contributor signature\n\n" + trailer
+    git("commit", "--allow-empty", "-qm", message)
+
+    issues = precheck.check_commit_messages(str(tmp_path))
+    assert (
+        not issues
+        if accepted
+        else any(
+            "Signed-off-by" in issue and issue.startswith("FAIL") for issue in issues
+        )
+    )
