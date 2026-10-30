@@ -8,15 +8,15 @@ order, checkpoint dependencies, state layout and final export Stage.
 
 ## Ray reuse audit
 
-The implementation is bound to Ray 2.55.1 and its default Train V2 path. In
+The implementation is bound to Ray 2.59.0 and its default Train V2 path. In
 this release `RAY_TRAIN_V2_ENABLED` defaults to true; Tributo does not override
-it to force V1. Source conclusions are based on the `ray-2.55.1`
+it to force V1. Source conclusions are based on the `ray-2.59.0`
 implementation and its public annotations, not unversioned latest docs.
 
 | Concern | Ray capability reused | Tributo responsibility |
 |---|---|---|
 | Worker group and process group | Stable `TorchTrainer` and `TorchConfig` | Validate descriptor topology and select the declared backend |
-| Dataset assignment | Stable, subclassable `DataConfig`; public `Dataset.streaming_split()` | A version-locked `ExactCoverageDataConfig` selects `equal=False` because Ray 2.55.1 hard-codes `equal=True` in `DataConfig.configure()` |
+| Dataset assignment | Stable, subclassable `DataConfig`; public `Dataset.streaming_split()` | A version-locked `ExactCoverageDataConfig` selects `equal=False` because Ray 2.59.0 hard-codes `equal=True` in `DataConfig.configure()` |
 | Torch batches | Public `DataIterator.iter_torch_batches()` | Validate feature/label roles and pass bounded batch options |
 | Device and DDP | Stable `ray.train.torch.prepare_model()` | Reject unvalidated BatchNorm and GPU claims |
 | Metrics | PyTorch tensors and `torch.distributed` collectives | Apply the descriptor's existing `MetricReduction`; do not infer reducers from names |
@@ -26,11 +26,12 @@ implementation and its public annotations, not unversioned latest docs.
 | Local execution | `ray.init(address="local")` | Own and close only the runtime created by Tributo |
 | Existing or provisioned cluster | `ray.init(address="auto")`, Ray Jobs, KubeRay RayJob, or Cluster Launcher | Attach or expose the same entrypoint; workload code never provisions or deletes the cluster |
 
-Ray's public API has no `DataConfig(equal=False)` option in 2.55.1. The custom
+Ray's public API has no `DataConfig(equal=False)` option in 2.59.0. The custom
 `configure()` override is therefore isolated under
 `tributo.integrations.algorithm_runtimes`, covered by fixed-version tests, and
 changes only the `equal` argument while preserving Ray execution options,
-training-resource exclusion, and locality hints. A future Ray public option
+per-dataset option copying and locality hints. Ray 2.59 owns training resource
+reservation; the removed `set_train_total_resources` API is not emulated. A future Ray public option
 should replace this adapter.
 
 Ray Train V2 rejects a non-null `resume_from_checkpoint` argument as deprecated,
@@ -107,10 +108,12 @@ dependency set, or framework installation.
 Local contract evidence covers descriptor lowering, exact-coverage
 configuration, streaming batch consumption, typed metric reduction, completed
 Stage checkpoints, trusted model reconstruction, Bundle publication, and
-execution-profile compatibility. Candidate-Wheel conformance and the final
-Docker Ray multi-node gate remain required before the migrated algorithms are
-declared validated. Kubernetes and KubeRay remain external deployment
-substrates; Tributo does not own or validate their control-plane lifecycle.
+execution-profile compatibility. The algorithm repository runs its own unit
+and package-conformance CI. Core's manual Ray Jobs probes use fixture plugins
+and do not certify official algorithm Wheels; no real multi-node Gate for the
+aggregate algorithm Wheel is currently provided. Kubernetes and KubeRay remain
+external deployment substrates; Tributo does not own or validate their
+control-plane lifecycle.
 Portable Torch Tune trials report the target metric only; the selected
 parameters must be used for a separate formal training run that publishes the
 final Bundle.

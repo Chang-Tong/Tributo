@@ -60,6 +60,41 @@ Use `ProviderSourceConfig` for a versioned third-party provider. Check the
 [support matrix](../../reference/support-matrix.md) because adapter discovery
 alone is not verification evidence.
 
+## Tune a Lance scan with Ray Data
+
+Lance scanner controls are available only with `engine="ray"`. Pass the
+bounded `scanner_options` object through the `tributo.lance` provider:
+
+```python
+from tributo.data import IngestionRequest, ProviderSourceConfig, open_ingestion
+
+source = ProviderSourceConfig(
+    provider="tributo.lance",
+    uri="/data/images.lance",
+    options={
+        "columns": ["id", "image_bytes"],
+        "filter": "id > 0",
+        "scanner_options": {
+            "batch_size": 128,
+            "batch_readahead": 1,
+            "fragment_readahead": 0,
+            "io_buffer_size": 32 * 1024 * 1024,
+            "late_materialization": ["image_bytes"],
+        },
+    },
+)
+
+with open_ingestion(IngestionRequest(source=source, engine="ray")) as result:
+    dataset = result.handle.dataset
+```
+
+The accepted scanner fields are `batch_size`, `batch_readahead`,
+`fragment_readahead`, `io_buffer_size`, and `late_materialization`. They tune
+scan execution and do not change the source identity. The Daft binding rejects
+non-empty `scanner_options`. These settings are not a hard process-memory
+limit; `batch_readahead` must be positive, while `fragment_readahead` can be
+zero. Keep `io_buffer_size` large enough for the largest scanned batch.
+
 ## Read a HiveServer2 table with Ray Data
 
 Install `tributo[hive-ray]`, then configure a structured database/table URI and
@@ -123,9 +158,10 @@ is satisfied.
 
 ## Read a ClickHouse table with Ray Data
 
-Install `ray-clickhouse==1.0` from PyPI in the same environment as
-`tributo[clickhouse]`, then select Ray explicitly. The package is not part of
-the Tributo lockfile or canonical full image.
+Run `uv sync --locked --no-dev --extra clickhouse` in the source checkout,
+then select Ray explicitly. The lock selects the stable version
+`ray-clickhouse==1.1`; see the installation requirements in the
+[installation guide](../../getting-started/installation.md).
 
 ```python
 from tributo.data import (
@@ -164,6 +200,82 @@ range splitting. Views and Distributed tables must use `single`; physical
 partition and range splitting are limited to eligible direct MergeTree-family
 tables. `batch_size` and `target_split_size_bytes` become the connector's row
 and byte block targets. Raw SQL remains outside Tributo's ingestion contract.
+
+## Filter Doris and ClickHouse reads at the source
+
+Use the existing structured Transform pipeline. The Ray bindings forward a
+supported leading filter prefix to `ray-doris` or `ray-clickhouse`; callers do
+not provide database-specific SQL.
+
+```python
+from tributo.data import FilterComparison, FilterIsIn, TransformPipeline
+
+request = IngestionRequest(
+    source=source,
+    engine="ray",
+    transforms=TransformPipeline(
+        steps=(
+            FilterComparison(column="id", operator="gte", value=9900),
+            FilterIsIn(column="category", values=("east", "west")),
+        )
+    ),
+)
+with open_ingestion(request) as result:
+    decisions = result.receipt.transform_decisions
+    rows = result.handle.dataset.take_all()
+```
+
+The complete pipeline is validated against the source-projected schema before
+filtered reader creation. Schema discovery uses metadata without fetching a
+sample; the final filtered reader must expose the same input schema.
+
+| Input and predicate | Source compilation |
+| --- | --- |
+| Integer column and integer scalar | Equality, inequality, ordered comparison, inclusive range, and IN |
+| Float64 column with finite float scalars or integer scalars within the exact Float64 integer range | Equality, inequality, ordered comparison, inclusive range, and IN |
+| Boolean column and Boolean scalar | Equality, inequality, and IN |
+| UTF-8 string column and string scalar | Equality, inequality, and IN; compare the textual output while preserving NULL |
+| NULL / non-NULL and empty IN | IS NULL / IS NOT NULL; empty IN is always false |
+| Other type/operator combinations | Ray residual execution |
+
+The first unsupported filter or non-filter transform ends the pushdown prefix.
+Later filters remain in their original position. This includes filters after
+projection, rename, cast, null filling, or limit. Float32, Decimal, date/time
+comparisons, string ordering, and implicit scalar coercion remain residual.
+Existing source column projections are not widened to admit a missing field.
+
+```{warning}
+Ray 2.59.0 can fail with `UnicodeEncodeError` when a residual expression
+such as `text == "中文"` puts a Unicode literal in an operator's metric
+tag. [Ray issue #67230](https://github.com/ray-project/ray/issues/67230) tracks
+this limitation. A supported leading filter executed by the database avoids
+that particular Ray Filter, while residual filters after projection, cast,
+or limit can still fail. Keep the original transform order when planning reads.
+```
+
+Each receipt decision retains its original ordinal. `exact` means the source
+enforces that step and Ray does not repeat it; `none` means Ray still executes
+it. A credential-free diagnostic explains the boundary. Receipts do not contain
+generated SQL or parameter values. Query planning, authentication, and read
+errors propagate; a failed filtered read is not retried with its filter removed.
+
+The owned `database-filter` CI suite uses one Docker Ray node with a real
+ClickHouse instance or Doris FE/BE pair. It observes successful real driver
+execution calls and checks the native Dataset output without a Ray residual
+filter. SQL drivers, connections, and data responses are not mocked. Evidence
+includes the source snapshot, versions, SQL execution trace, exact ordinals,
+and results; skips or missing evidence fail validation. Index pruning and
+elapsed-time improvements are separate performance observations.
+
+Run the same controlled validation locally:
+
+```bash
+./scripts/run_database_filter_it.sh --database clickhouse
+./scripts/run_database_filter_it.sh --database doris
+```
+
+The lifecycle uses a unique Compose project, locked dependencies and pinned
+images. It retains evidence and removes only its own service resources.
 
 ```{warning}
 Do not place passwords, tokens, signed query strings, or URI user information

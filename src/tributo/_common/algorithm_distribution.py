@@ -27,6 +27,8 @@ from packaging.utils import (
 )
 from packaging.version import InvalidVersion, Version
 
+from tributo._common.runtime_versions import SUPPORTED_RAY_VERSION
+from tributo._common.version_compatibility import tributo_version_matches
 from tributo.algorithms.api.artifacts import (
     AlgorithmArtifact,
     AlgorithmBundleManifest,
@@ -39,7 +41,6 @@ from tributo.util.annotations import DeveloperAPI
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_RAY_VERSION = "2.55.1"
 DEFAULT_MAX_BUNDLE_SIZE = 4 * 1024 * 1024 * 1024
 _RUNTIME_WORKING_DIR = "${RAY_RUNTIME_ENV_CREATE_WORKING_DIR}"
 _ALLOWED_PIP_INSTALL_OPTIONS = (
@@ -312,7 +313,9 @@ def _validate_bundle_compatibility(
             f"Bundle algorithm {manifest.algorithm_id!r} is not allowed by image "
             f"Profile {profile.profile_id!r}"
         )
-    if _current_tributo_version() not in SpecifierSet(manifest.tributo_version_spec):
+    if not tributo_version_matches(
+        _current_tributo_version(), manifest.tributo_version_spec
+    ):
         raise _configuration_error(
             "Bundle Tributo version constraint excludes the running Tributo version"
         )
@@ -345,6 +348,13 @@ def _normalized_requirements(dependencies: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(normalized))
 
 
+def _requirement_version_matches(requirement: Requirement, version: str) -> bool:
+    """Apply the Core version policy only to dependencies on Tributo itself."""
+    if canonicalize_name(requirement.name) == "tributo":
+        return tributo_version_matches(version, str(requirement.specifier))
+    return Version(version) in requirement.specifier
+
+
 def _profile_distribution(
     profile: ImageProfile,
     requirement: Requirement,
@@ -352,7 +362,7 @@ def _profile_distribution(
     version = profile.installed_distributions.get(canonicalize_name(requirement.name))
     if version is None:
         return False
-    return Version(version) in requirement.specifier
+    return _requirement_version_matches(requirement, version)
 
 
 def _local_source_path(artifact: AlgorithmArtifact) -> Path | None:
@@ -417,7 +427,7 @@ def _validate_declared_requirement(
     name = canonicalize_name(requirement.name)
     local = local_wheels.get(name)
     if local is not None:
-        if Version(local.package_version) not in requirement.specifier:
+        if not _requirement_version_matches(requirement, local.package_version):
             raise _configuration_error(
                 f"local Wheel {local.package_name}=={local.package_version} does not "
                 f"satisfy {dependency!r}"
@@ -1358,8 +1368,25 @@ def algorithm_runtime_env_patch(
         patch["working_dir"] = artifact.source
         patch["excludes"] = []
         requirements = prepared.requirements_name or artifact.requirements_name
+        cache_identity = hashlib.sha256(
+            json.dumps(
+                {
+                    "artifact_sha256": prepared.receipt.artifact_sha256,
+                    "image_digest": prepared.receipt.image_digest,
+                    "image_profile_id": prepared.receipt.image_profile_id,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        # Ray 2.55.1 hashes the pip spec without the working_dir URI. Add an
+        # ignored requirements-file comment so distinct offline Bundles and
+        # image profiles cannot reuse the same cached virtualenv.
         patch["pip"] = {
-            "packages": [f"-r {_RUNTIME_WORKING_DIR}/{requirements}"],
+            "packages": [
+                f"-r {_RUNTIME_WORKING_DIR}/{requirements}",
+                f"# tributo-runtime-env-cache-key={cache_identity}",
+            ],
             "pip_check": prepared.pip_check,
             "pip_install_options": list(_ALLOWED_PIP_INSTALL_OPTIONS),
         }

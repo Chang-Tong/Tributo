@@ -13,6 +13,8 @@ from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from tributo._common.runtime_versions import SUPPORTED_RAY_VERSION
+from tributo._common.version_compatibility import tributo_version_matches
 from tributo.algorithms.api.descriptor import DistributedAlgorithmDescriptor
 from tributo.algorithms.api.distribution import (
     DistributionStrategy,
@@ -260,7 +262,7 @@ class AlgorithmSupportEvidence:
             if canonicalize_name(Requirement(requirement).name) == "ray"
         ]
         ray_matches = (
-            self.ray_version == "2.55.1"
+            self.ray_version == SUPPORTED_RAY_VERSION
             if not ray_requirements
             else any(
                 Version(self.ray_version) in Requirement(requirement).specifier
@@ -280,8 +282,9 @@ class AlgorithmSupportEvidence:
             is descriptor_distributed_semantics(descriptor)
             and distribution is not None
             and self.execution_profile in distribution.supported_execution_profiles
-            and Version(self.tributo_version)
-            in SpecifierSet(descriptor.tributo_version_spec)
+            and tributo_version_matches(
+                self.tributo_version, descriptor.tributo_version_spec
+            )
             and Version(self.python_version) in SpecifierSet(environment.python)
             and ray_matches
             and (

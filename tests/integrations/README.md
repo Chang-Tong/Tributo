@@ -6,15 +6,13 @@ project. They never reuse a host Ray runtime, an existing MLflow server, or a
 pre-existing container. `ci/test-suites.json` owns their impact rules and
 reports required evidence, but no GitHub Actions event executes these suites.
 
-The data-ingestion image installs database drivers and the v1.0 database
-connectors through Tributo extras. `daft-doris==1.0`, `ray-doris==1.0`,
-and `ray-hive==1.0` are resolved by
-`uv.lock`. The Data Ingestion Gate validates the Tributo Ray HiveServer2
-Provider/Binding separately from the canonical full-runtime package-presence
-gate. The Ray ClickHouse Binding requires separately installed
-`ray-clickhouse==1.0`, which is available on PyPI but remains outside the
-Tributo lockfile. The data-ingestion image installs its hash-pinned wheel for
-the real-database write gate. Other runtime images can use the wheelhouse path.
+The data-ingestion dependencies are declared through Tributo extras. The
+[installation requirements](../../docs/getting-started/installation.md) list
+the runtime baseline and connector minimums. All four connectors are stable PyPI packages selected by
+`uv.lock`, with their distribution hashes retained by the standard host-export
+image entry point. The full CPU image/Ray Jobs gate passed on Linux arm64. Individual
+database and algorithm suites retain their separate validation requirements;
+the stable package baseline does not imply validation of every platform.
 
 ---
 
@@ -36,49 +34,27 @@ the real-database write gate. Other runtime images can use the wheelhouse path.
 | Streaming | `test_e2e_streaming.py` | `quarantine` | Streaming inference service | Model and service lifecycle pending |
 | Tune trial correctness | `../integration/test_tune_ray_cluster.py` | `manual_external` | Ray Jobs → two concurrent XGBoost Tune trials, strict target metric, isolated checkpoints, ResultGrid, and zero Bundle publication | Isolated version-locked Docker Ray cluster via `run_tune_it.sh` |
 | Explainability Ray Jobs | `../integration/test_explainability_ray_jobs.py` | `manual_external` | Explanation submission, distributed execution, and output evidence | Lifecycle-owned Ray Jobs runner |
+| Core algorithm runtimes | `../algorithms/test_distributed_ray_runtime.py`, `../algorithms/test_decomposition_runtimes.py` | `manual_external` | Core-owned local Ray worker, decomposition, and execution receipt contracts | Isolated Linux container with the locked Core environment |
 | Distributed algorithms | `../integration/test_distributed_algorithm_local.py` | `manual_external` | Collective and MapReduce execution, sharding, receipts, and Bundle atomicity | Isolated multi-worker Ray environment |
-| KubeRay RayJob resource profiles | `../integration/test_kuberay_rayjob_resources.py` | `manual_external` | Tributo KubeRay submission adapter, multiple worker CPU/memory profiles, formal XGBoost ExecutionReceipt/Bundle, and cleanup | Kind 1 control-plane + 3 workers, fixed KubeRay Operator, and local XGBoost Tributo image |
+| Core algorithm contract Ray Jobs | `../../scripts/run_algorithm_contract_ray_jobs_it.sh` | `manual_external` | Fixture Bundle installation, portable execution channels, offline dependency delivery, Core graph partition contracts, and Framework Native role coverage | Lifecycle-owned Docker Ray Jobs cluster, MinIO, and two workers |
 | Ray runtime environment | `../integration/test_ray_runtime_env.py` | `manual_external` | uv runtime-environment propagation into Ray workers | Host capable of starting the required Ray runtime |
 
-### KubeRay RayJob resource profiles
+## Core Algorithm Contract Ray Jobs Suite
 
-This is a heavyweight manual external gate. Do not run the runner or invoke
-the test module directly during normal development, pre-checks, or routine
-reviews unless the user explicitly requests this KubeRay IT. One run creates
-a disposable four-node Kind cluster, loads a large runtime image into every
-node, installs KubeRay, and executes two distributed XGBoost jobs.
-
-The KubeRay gate uses a small XGBoost image so it can reuse a locally cached Ray
-runtime without building the full algorithm image. It installs the current
-Tributo wheel and the official boosting wheel from the sibling
-`tributo-algorithms` checkout:
+Run the fixture-only external suite from the repository root:
 
 ```bash
-TRIBUTO_ALGORITHMS_ROOT=/path/to/tributo-algorithms \
-TRIBUTO_KUBERAY_RUNTIME_IMAGE=tributo-kuberay-xgboost:it-local \
-  bash scripts/build_kuberay_xgboost_image.sh
-TRIBUTO_KIND_NODE_IMAGE='kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5' \
-TRIBUTO_KUBERAY_RUNTIME_IMAGE=tributo-kuberay-xgboost:it-local \
-  ./scripts/run_kuberay_rayjob_it.sh
+./scripts/run_algorithm_contract_ray_jobs_it.sh
 ```
 
-The runner creates and destroys one uniquely named Kind cluster. The Python IT
-submits each business `RayJob` through `KubeRayJobSubmitter`; the shell runner
-only owns Kind, Operator setup, diagnostics, and scoped cleanup. The fixed node
-image must match the local Docker architecture.
-
-The IT runs two positive profiles: two workers with 1 CPU/1 GiB each, and
-three workers with 2 CPU/2 GiB each. The image contains three small CSV parts
-so the three-worker case has deterministic non-empty Ray Data input shards.
-The workload prints a credential-free Ray resource snapshot; the test checks
-aggregate cluster capacity and that enough alive Ray nodes can satisfy one
-requested worker.
-
-For an internal or offline environment, set
-`TRIBUTO_KUBERAY_CHART_ARCHIVE` to a locally available archive for the same
-`TRIBUTO_KUBERAY_VERSION`; the runner then skips the public Helm repository.
-
----
+The runner builds the current Core Wheel and test fixture Wheels, prepares
+offline Bundles, starts a unique Docker Compose Ray cluster with MinIO, and runs
+the third-party plugin, portable execution, Core graph partition, and
+Framework Native role coverage tests inside the owned Ray head. It captures
+pytest, Ray Job, image, and service logs under
+`/tmp/tributo-algorithm-contract-it-*`, then removes only that Compose
+project's containers, network, and volumes. It does not install the official
+`tributo-algorithms` distribution or certify its multi-node profiles.
 
 ## Inference Ray Jobs Suite
 
@@ -190,23 +166,12 @@ lifecycle-owned runner.
 
 ## Pinned Component Contract
 
-`component-versions.env` is authoritative for the shared integration-test
-components used by the model-export and ingestion external validations:
-
-| Component | Version |
-|-----------|---------|
-| Python | 3.12 |
-| Ray | 2.55.1 |
-| uv | 0.11.23 |
-| MinIO | RELEASE.2025-09-07T16-13-09Z |
-| PostgreSQL | 16.14 |
-| MLflow | 2.22.5 |
-| boto3 / botocore | 1.43.56 / 1.43.56 |
-| XGBoost | 3.3.0 |
-| ONNX / ONNX Runtime / onnxmltools | 1.22.0 / 1.28.0 / 1.16.0 |
-| Torch | 2.13.0 |
-| Transformers | 4.57.6 |
-| PyArrow / pandas | 19.0.1 / 2.3.3 |
+[`component-versions.env`](component-versions.env) declares the shared shell
+runner components used by the model-export and ingestion external validations.
+[`runtime-profiles.json`](runtime-profiles.json) selects the package checks for
+each managed runtime. These profiles resolve package versions from `uv.lock`
+and share pinned image inputs from
+[`tools/tributo-runtime-full.json`](../../tools/tributo-runtime-full.json).
 
 Ray, Hive, MinIO, and PostgreSQL image references include immutable SHA-256
 digests. All Docker IT runtime profiles use host uv with `0.11.23` as the CI

@@ -13,10 +13,30 @@ Tributo follows [Semantic Versioning 2.0.0](https://semver.org/).
 | **Minor** (0.X.0) | New `stable` or `beta` feature; `beta` API change with deprecation notice; new optional dependency |
 | **Patch** (0.0.X) | Bug fix; internal refactor with no API change; dependency version bump within declared range |
 
-Current version: **1.0.0** (as declared in `pyproject.toml`).
+Current version: **1.3.0.dev0** (as declared in `pyproject.toml`).
 
 `pyproject.toml` is the authoritative source. README, Docker, CI, and lock
 files must be verified against it whenever the version changes.
+
+### Development and release branches
+
+Formal releases use SemVer numbers. Python development versions use the
+[PEP 440 development-release format](https://packaging.python.org/en/latest/specifications/version-specifiers/#developmental-releases).
+`master` declares `1.3.0.dev0` for ongoing development. The `release-1.2.0`
+branch declares `1.2.0`, and the `tributo-1.2.0` tag must identify its exact
+validated commit. A development version does not determine whether the next
+published release is a patch or a minor version.
+
+Release branches start from an explicitly reviewed commit. Their formal-version
+changes are not merged back into `master`. Patch releases start from the
+appropriate release snapshot and receive selected fixes rather than all new
+master features. Beta compatibility windows count published minor releases;
+development versions do not consume those windows. Manifest schema and Plugin
+API versions keep their independent identities.
+
+README and installation examples distinguish the published source tag from
+the development checkout. Update the mainline's published installation entry
+only after the corresponding GitHub source release and PyPI package exist.
 
 ## API Stability Tiers
 
@@ -86,7 +106,7 @@ version and the Manifest schema version.
 | `ModelFlavor` | 1 | `integrations/` |
 | Bounded-ingestion Provider descriptor | 1 | `data/provider_plugins.py` |
 | Bounded-ingestion Binding descriptor | 1 | `data/binding_plugins.py` |
-| Distributed algorithm descriptor | 1 | `algorithms/api/descriptor.py` |
+| Distributed algorithm descriptor | 1, 2 | `algorithms/api/descriptor.py`; v2 requires explicit contract bindings |
 | DistributionSpec | 1 | `algorithms/api/distribution.py` |
 | ExecutionReceipt | 1 | `algorithms/api/execution.py` |
 | Trainer entry points | N/A (not versioned) | `plugin.py` |
@@ -101,10 +121,11 @@ version and the Manifest schema version.
 - The framework MAY support multiple `api_version` values concurrently during
   a transition period (e.g., accept both v1 and v2 plugins). This requires
   explicit code — the default is single-version.
-- Bounded-ingestion Provider and Binding descriptors declare an exact plugin
-  distribution version plus a Tributo version specifier. Discovery rejects a
-  descriptor when either installed version disagrees, isolates the bad entry
-  point, and never replaces an already registered route.
+- Bounded-ingestion Provider descriptors declare an exact plugin distribution
+  version plus a Tributo version specifier. Binding descriptors declare an exact
+  plugin distribution version and an engine version specifier. Discovery
+  rejects incompatible descriptors, isolates the bad entry point, and never
+  replaces an already registered route.
 - Distributed algorithm descriptors declare an exact installed package version,
   a Tributo package compatibility range, and an exact descriptor API version.
   Discovery also verifies inheritance from the strategy named by
@@ -113,6 +134,28 @@ version and the Manifest schema version.
 - Older unversioned plugin groups retain their existing behavior. They do not
   inherit the stronger guarantees of bounded-ingestion or distributed-algorithm
   descriptor discovery.
+
+### Core development-version matching
+
+Provider registration, distributed algorithm descriptor validation, offline
+algorithm Bundle validation, and support-evidence matching share one Core
+version rule. An explicitly selected Core development version may match its
+declared range. The full version remains subject
+to PEP 440 bounds, exact pins, and exclusions; it is not converted into the
+corresponding formal release.
+
+For `1.3.0.dev0`, `>=1,<2` matches, while `<1.3`, `>=1.3`, `==1.2.0`, and
+`!=1.3.*` do not. Formal versions retain the default matching behavior.
+Release candidates and beta versions require permission in their version
+specifier; this rule does not automatically admit them.
+
+Plugin package versions, descriptor API versions, Wheel digests, and support
+evidence identity remain strict. Matching a development version does not award
+execution support, change the version recorded in evidence, or certify a
+different Core/Wheel combination. Ray, Daft, and Python version checks retain
+their independent policies. Development installations must select Core source
+or a Core Wheel explicitly; this runtime rule does not change package-index
+resolution.
 
 ### Plugin lifecycle before PL1 and PL2
 
@@ -136,7 +179,7 @@ version and the Manifest schema version.
 
 ## Dependency Version Policy
 
-- **Ray**: Pinned to exact version (`==2.55.1`). Ray's own SemVer does not
+- **Ray**: Pinned to the exact version declared in `pyproject.toml`. Ray's own SemVer does not
   guarantee Train/Data/Serve API stability across minor versions.
 - **PyIceberg**: Constrained to `>=0.11.1,<0.12.0`. Built-in Iceberg bindings
   select `PyArrowFileIO`; named profiles are materialized into its public S3
@@ -150,18 +193,48 @@ version and the Manifest schema version.
 - **Transitive-only dependencies** (PyMySQL, ConnectorX): Declared as optional
   extras; imported at runtime with `ModuleNotFoundError` → install hint.
 
+### Maintaining the runtime baseline
+
+SDK defaults, runtime checks, and installation hints share
+`src/tributo/_common/runtime_versions.json`. Ordinary test fixtures read
+`uv.lock` independently; tests compare that lock and the dependency declarations
+with the SDK baseline. Compatibility boundary tests and source audit notes keep
+their explicit versions and require review during an upgrade.
+
+Image builders share pinned base image inputs from
+`tools/tributo-runtime-full.json`. Managed IT profiles select their package
+checks from `uv.lock`; they do not repeat package version numbers. Use the
+repository builders, which supply the required Docker build arguments
+and named contexts. Shell runner version files remain explicit inputs for
+their separate integration suites.
+
+For an upgrade, update the SDK baseline, dependency declarations and lock,
+image inputs, and affected shell runner inputs. Review the
+[installation requirements](../getting-started/installation.md),
+[support matrix](../reference/support-matrix.md), compatibility tests, and
+source audit notes against the new validation evidence. General guides link
+to those references; historical recipes retain the versions actually tested.
+
 ### Data dependency upgrade gates
 
-- Ray 2.55.1 still accepts Iceberg `row_filter` and `selected_fields`, but both
-  reader arguments are deprecated. A Ray upgrade must first move filtering and
-  projection to the replacement public Dataset APIs, then rerun local/S3,
+- Ray 2.59.0 still accepts Iceberg `row_filter` and `selected_fields`, but both
+  reader arguments are deprecated. Before adopting a Ray release that removes these arguments, move filtering and
+  projection to the replacement public Dataset APIs and rerun local/S3,
   empty-table, and dual-engine Iceberg Conformance before widening the pin.
 - A PyIceberg range change must rerun named-profile, session-token, path-style,
   FileIO rejection, empty-table, and MinIO Iceberg tests. Tributo must not
   support a second FileIO by inheriting backend-specific string semantics;
   that requires a separately declared and tested Connector/Binding.
-- `ray-hive` is pinned to `==1.0`. Any version change must rerun Provider and
-  Binding contracts plus the Hive 4.2.0 Data Ingestion Gate, including worker
-  execution, projection, schema, receipt, and credential-boundary evidence.
+- Connector extras declare minimum stable versions: `daft-doris>=1.1`,
+  `ray-hive>=1.2`, `ray-doris>=1.3`, and `ray-clickhouse>=1.1`. These minimums
+  apply to master and release branches and increase only when required APIs or
+  fixes justify a change. SDK bindings record installed versions and retain
+  driver/worker consistency checks; exact versions and hashes belong to the
+  locked test/image environment. A lower bound does not certify every future
+  release. Known incompatible versions require an evidence-based exclusion or
+  upper bound. Changes to the Hive adapter or connector behavior require
+  affected Provider/Binding tests and the
+  Hive Data Ingestion Gate for worker execution, projection, schema, receipt,
+  and credential boundaries.
 
 <!-- END -->

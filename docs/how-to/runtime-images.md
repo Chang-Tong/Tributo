@@ -1,18 +1,26 @@
 # Build the Tributo runtime image
 
-Tributo provides one directly buildable full runtime image validated for CPU
-execution with Ray 2.55.1: Linux, Python 3.12, and every first-party runtime
+Tributo provides one full runtime image definition targeting CPU
+execution with the Ray baseline in the
+[installation requirements](../getting-started/installation.md): Linux,
+Python 3.12, and every first-party runtime
 extra, including the Alpha modules. By default the builder selects the host's
 native architecture. The image is dependency-closed and does not install
 development or test dependencies. On Linux, the locked PyTorch closure may
 include transitive CUDA/NVIDIA distributions; their presence does not make
 this a GPU image or a GPU support claim.
 
+This development revision uses stable PyPI connector packages with versions
+and hashes selected by `uv.lock`. The standard CPU image gate targets Linux
+arm64 and covers dependency imports, manifest sealing and the Ray Jobs worker
+probe. Native `amd64`, GPU and external algorithm execution require their
+own validation. The focused source compatibility gate remains a separate check.
+
 ## Prerequisites
 
 Run the commands from the repository root with Docker Buildx, Python 3.12, and
-the repository's locked `uv` environment available. The pinned Ray and `uv`
-base images are declared in
+the repository's locked `uv` environment available. The pinned Ray base image
+and host `uv` export baseline are declared in
 [`tools/tributo-runtime-full.json`](../../tools/tributo-runtime-full.json).
 
 The default target is the native host architecture (`linux/arm64` on Apple
@@ -21,9 +29,10 @@ specify it explicitly, for example `--platform linux/amd64`. A cross-platform
 build is not a native runtime validation; its Ray Jobs gate must run on a
 matching native host.
 
-The builder downloads the digest-pinned Ray and `uv` inputs through the DaoCloud
-mirrors recorded in the JSON configuration, verifies the digest, and gives each
-image a local tag before BuildKit starts. Docker image operations explicitly
+The builder downloads the digest-pinned Ray base through the DaoCloud mirror
+recorded in the JSON configuration, verifies its digest, and gives the image a
+local tag before BuildKit starts. Dependency export uses the host `uv` executable.
+Docker image operations explicitly
 remove both upper- and lower-case `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`,
 so PandaFan is not used for registry traffic. The locked Python wheels keep
 their `uv.lock` URLs and are not rewritten to a different index.
@@ -59,19 +68,40 @@ The output directory contains:
 - `capabilities.json`: the Alpha capability declaration;
 - `build.log`: the command/evidence log for this build.
 
-The builder never pushes an image. Publishing requires a separate reviewed
-workflow. The canonical configuration resolves `daft-doris==1.0`,
-`ray-doris==1.0`, and `ray-hive==1.0` through the locked Tributo extras, so the
-normal image build does not require a local connector wheelhouse. The
-`external_wheelhouse` option remains available for packages outside the lock:
+The builder never pushes an image. The Docker Hub workflow supports two release
+paths: manually dispatch it from `master` to publish the existing
+`tributo-1.2.0` release, or publish a later stable GitHub Release to trigger an
+automatic build from that release tag. Both paths run the selected release's
+builder dependency/import checks before publishing to
+`tosche911/tributo-runtime`. It reuses a tag when it points to the same image
+and refuses to overwrite a tag that points to a different image. It writes
+`published-image-profile.json` with the registry manifest digest.
+The image tag is derived from the package, Python, Ray, and platform versions.
+The arm64 Tributo 1.2.0 CPU image tag is
+`1.2.0-py312-ray2.59.0-cpu-arm64`; later releases receive tags for their own
+package version. Only stable `tributo-X.Y.Z` releases trigger automatic
+publication. These are architecture-specific images; native `amd64` execution
+and GPU support are not claimed. The release commit's arm64 CPU Ray Jobs gate
+is recorded in the
+[support matrix](../reference/support-matrix.md).
+
+The workflow reads `DOCKERHUB_USERNAME` from a repository Actions variable and
+`DOCKERHUB_TOKEN` from a repository Actions secret. The manual path checks out
+the fixed 1.2.0 tag and commit; the automatic path checks out the published
+release tag and verifies its commit and package version. Both paths verify the
+configured Docker Hub username is `tosche911` and that
+`tosche911/tributo-runtime` exists and is publicly readable before pushing.
+Each release uses its committed lockfile to resolve the exact image inputs.
+
+The standard host-export builder rejects local dependency paths and exports
+PyPI connector versions with SHA-256 hashes from `uv.lock`. Exporting the
+closure does not by itself certify the full runtime image.
+
+The `external_wheelhouse` option remains available for packages outside the lock:
 it is copied into a named build context and installed with
 `pip --no-index --no-deps`; every wheel is recorded by filename,
 package/version, size, and SHA-256. Such a variant is an attested,
 image-specific extension and does not change the Tributo lockfile.
-The Ray ClickHouse Binding uses this path when adding the separately released
-`ray_clickhouse-1.0-py3-none-any.whl` to an image. The package is also available
-on PyPI, but remains outside the Tributo lockfile. The wheel must be supplied
-unchanged; the image manifest records its filename, version, size, and SHA-256.
 
 The connector extras can also be installed from the source checkout outside
 Docker. These commands are alternatives; run the single profile you need. To
@@ -80,7 +110,7 @@ each sync reconciles the environment to its selected extras:
 
 ```bash
 uv sync --locked --no-dev --extra clickhouse
-# Ray ClickHouse additionally requires ray-clickhouse==1.0.
+# The clickhouse extra includes the fixed Ray ClickHouse source.
 uv sync --locked --no-dev --extra mysql          # Daft Doris + Ray Doris over MySQL
 uv sync --locked --no-dev --extra doris-flight   # Daft/Ray Doris Flight dependencies
 uv sync --locked --no-dev --extra hive-ray       # Ray HiveServer2 connector package
@@ -89,9 +119,8 @@ uv sync --locked --no-dev --extra hive-ray       # Ray HiveServer2 connector pac
 A Doris test that selects
 `engine="tributo.daft"` needs `daft-doris`; a Ray Doris or generic training
 path that selects `engine="tributo.ray_data"` needs `ray-doris`.
-The Ray ClickHouse route similarly needs the separately installed
-`ray-clickhouse==1.0` package; installing only `tributo[clickhouse]` leaves the
-Daft route available and the Ray route unavailable rather than falling back.
+The Ray ClickHouse route uses `ray-clickhouse` installed by the
+existing `clickhouse` extra; it does not add a Daft ClickHouse route.
 `ray-hive` backs the built-in `tributo.hive` to `tributo.ray.hive` route. The
 request must still select Ray explicitly; no Daft, native ORC/HDFS, or automatic
 fallback route is added.
@@ -121,7 +150,7 @@ directory, then removes only that Compose project and its volumes.
 
 The full image includes the first-party data, model export, training,
 Tune, serving, streaming, registry, vector-index, explainability, graph, and
-causal dependency closure, plus `ray-hive==1.0` for the built-in Ray
+causal dependency closure, plus `ray-hive` for the built-in Ray
 HiveServer2 Binding. It does not include development/test dependencies, GPU
 compatibility or a GPU execution gate, HDFS/ORC file readers, a Daft Hive
 Binding, or a KubeRay control plane. Linux PyTorch dependencies may still contain

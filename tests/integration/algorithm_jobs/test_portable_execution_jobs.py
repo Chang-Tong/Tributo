@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections.abc import Iterator
 from typing import Any, cast
@@ -10,6 +11,7 @@ from typing import Any, cast
 import pytest
 from ray.job_submission import JobStatus, JobSubmissionClient
 
+from tests.support.runtime_versions import RAY_VERSION
 from tributo._common import DEFAULT_DASHBOARD_URL
 from tributo.training import submit_training_job, wait_for_job
 
@@ -18,7 +20,11 @@ pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 @pytest.fixture(scope="module")
 def job_client() -> Iterator[JobSubmissionClient]:
-    """Connect to the existing Docker Ray cluster through the Jobs API."""
+    """Connect to the lifecycle-owned Docker Ray cluster through the Jobs API."""
+    if os.environ.get("TRIBUTO_DOCKER_ALGORITHM_CONTRACT_IT") != "1":
+        pytest.fail(
+            "portable plugin IT must run through its owned Docker Ray Jobs suite"
+        )
     import requests
 
     original_request = requests.api.request
@@ -72,7 +78,7 @@ def test_portable_channel_executes_in_real_ray_job(
     result = _result_from_logs(job_result["logs"])
 
     assert result["channel"] == channel
-    assert result["actual_ray"] == "2.55.1"
+    assert result["actual_ray"] == RAY_VERSION
     assert result["driver_imported_user_module"] is False
     assert result["driver_imported_sklearn"] is False
     if channel == "sklearn":
@@ -206,7 +212,7 @@ def test_sklearn_uses_ray_joblib_workers_in_real_ray_job(
     assert result["task_count"] == 6
     assert len(result["worker_ids"]) >= 2
     assert result["framework_parallelism"] == 2
-    assert result["actual_ray"] == "2.55.1"
+    assert result["actual_ray"] == RAY_VERSION
     assert result["actual_sklearn"]
     assert result["driver_imported_user_module"] is False
     assert result["driver_imported_sklearn"] is False

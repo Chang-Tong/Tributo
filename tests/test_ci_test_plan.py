@@ -5,13 +5,38 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import replace
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts import ci_test_plan
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push"])
+@pytest.mark.parametrize(
+    ("branch", "accepted"),
+    [
+        ("master", True),
+        ("release-1.1.0", True),
+        ("release-1.1.1", True),
+        ("version-policy", False),
+        ("feature/example", False),
+    ],
+)
+def test_release_branch_uses_existing_ci_workflow(
+    event: str, branch: str, accepted: bool
+) -> None:
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/pr-test-suite.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    patterns = workflow["on"][event]["branches"]
+
+    assert any(fnmatchcase(branch, pattern) for pattern in patterns) is accepted
 
 
 @pytest.fixture(scope="module")
@@ -63,8 +88,14 @@ def test_every_test_module_and_it_runner_has_one_effective_owner(
     assert runner_paths
     for runner_path in runner_paths:
         suite = ci_test_plan.suite_for_test_path(manifest, runner_path)
-        assert suite.tier == "manual_external"
-        assert suite.workflow == "external"
+        if runner_path == "scripts/run_database_filter_it.sh":
+            assert suite.suite_id == "database-filter"
+            assert suite.tier == "ci_database"
+            assert suite.entrypoint == ci_test_plan.DATABASE_ENTRYPOINT
+            assert suite.workflow == "database"
+        else:
+            assert suite.tier == "manual_external"
+            assert suite.workflow == "external"
 
 
 def test_dot_github_path_keeps_leading_dot_and_uses_first_rule(
@@ -238,10 +269,6 @@ def test_scheduled_plan_contains_only_budgeted_scheduled_shards(
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        (
-            "tests/training/jobs/official_algorithm_gate_job.py",
-            ("manual_it",),
-        ),
         (
             "tests/registry/test_integration.py",
             ("manual_it", "quarantine"),
@@ -574,3 +601,20 @@ def test_workflows_preserve_events_permissions_budgets_and_stable_gate() -> None
     assert "timeout-minutes: 45" not in combined
     assert "timeout-minutes: 65" not in combined
     assert "timeout-minutes: 80" not in combined
+
+
+def test_dco_check_skips_merge_commits_but_requires_signed_off_by() -> None:
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/pr-test-suite.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    dco_step = next(
+        step
+        for step in workflow["jobs"]["dco"]["steps"]
+        if step.get("name") == "Check Signed-off-by"
+    )
+
+    assert (
+        "git log --no-merges --format='%H' \"$BASE_SHA..$HEAD_SHA\"" in dco_step["run"]
+    )
+    assert 'grep -qE "^Signed-off-by: [^<]+ <[^>]+>$"' in dco_step["run"]

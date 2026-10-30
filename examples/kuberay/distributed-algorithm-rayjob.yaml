@@ -9,7 +9,7 @@ spec:
     env_vars:
       PYTHONUNBUFFERED: "1"
   rayClusterSpec:
-    rayVersion: "2.55.1"
+    rayVersion: "2.59.0"
     headGroupSpec:
       rayStartParams:
         num-cpus: "0"
@@ -17,7 +17,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: your-registry/tributo-ray:1.0.0
+              image: your-registry/tributo-ray:1.3.0.dev0
               resources:
                 requests:
                   cpu: "1"
@@ -36,7 +36,7 @@ spec:
           spec:
             containers:
               - name: ray-worker
-                image: your-registry/tributo-ray:1.0.0
+                image: your-registry/tributo-ray:1.3.0.dev0
                 resources:
                   requests:
                     cpu: "2"

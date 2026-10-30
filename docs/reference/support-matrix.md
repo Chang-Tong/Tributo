@@ -1,5 +1,13 @@
 # Support matrix
 
+The Ray 2.59.0 / Daft 0.7.26 source revision has passed installation, targeted
+contracts, focused local/S3 and Hive checks, exact-row coverage, SDK batch
+prediction and the full CPU runtime image gate on Linux arm64. Connector
+requirements declare minimum stable versions; the lock selects exact PyPI
+versions and hashes.
+Other algorithm and platform combinations retain their separate validation
+requirements; the route statuses below are not blanket certification.
+
 This page distinguishes implemented paths from extension contracts and
 prototypes.
 
@@ -13,12 +21,13 @@ automation eligibility.
 | Area | Implementation and configuration | Bounded CI evidence | External environment evidence |
 | --- | --- | --- | --- |
 | Bounded ingestion | Data Gateway, Provider/Binding descriptors, and engine options | `unit`, `unit-integration-contracts`, and the ephemeral `s3-contract` suite | `data-ingestion-cluster` |
+| Ray ClickHouse/Doris filter pushdown | Leading supported structured filters forwarded through the native connectors | Owned `database-filter` suite and `database-filter-gate`; verified single-node CI on Linux `amd64` with real ClickHouse and Doris | Local single-node Docker Ray proof: ClickHouse single/partition/range; Doris MySQL/Flight |
 | Model export and Bundle publication | Export planner, exporters, validators, publisher, and storage profiles | `unit`, `unit-integration-contracts`, and `s3-contract` | `model-export-cluster` |
 | Batch and online inference | Inference plans, model flavors, sinks, and serving configuration | `unit` and `unit-integration-contracts` | `inference-cluster` |
 | Lance vector index | Vector-index API, storage profiles, and Ray Jobs request contract | `unit` contracts | `lance-vector-cluster` |
 | Tune and explainability | Capability declarations and typed job configuration | `unit` contracts | `tune-cluster` and `explainability-cluster` |
-| Distributed algorithms | Algorithm descriptors, execution profiles, and portable receipts | `unit` and `unit-integration-contracts` | `distributed-algorithm-cluster` |
-| Full runtime image for CPU validation | Pinned Ray/uv base, locked first-party extras, Alpha import closure, and `ImageProfile` attestation | `unit` contracts | `runtime-image` |
+| Distributed algorithms | Core descriptors, execution profiles, and portable receipts | `unit` and `unit-integration-contracts` | Official algorithm package CI; no Core-owned Wheel Gate |
+| Full runtime image for CPU validation | Pinned Ray base, host uv export, locked first-party extras, Alpha import closure, and `ImageProfile` attestation | `unit` contracts | `runtime-image` |
 
 External suite names describe required evidence, not GitHub Actions jobs.
 Quarantined MLflow, serving, streaming, and legacy standalone tests do not
@@ -26,17 +35,14 @@ count as capability evidence until their lifecycle and reliability conditions
 are repaired.
 
 For distributed algorithms, compatible profiles are declared by the static
-contract. Validated profiles have additionally passed the corresponding real
-environment Gate. The project-wide distributed algorithm Gate uses Ray Jobs on
-an isolated Docker cluster with two worker nodes to verify sharding, state
-coordination, cross-node receipts, and Bundle atomicity. This verifies the
-deployment-neutral `cluster` execution profile on an existing Ray cluster.
+contract. Core CI validates the open descriptor and execution contracts using
+Core-owned fixtures; the official algorithm repository runs its own package
+tests. Core CI and its manual suite manifest do not build or install the
+`tributo-algorithms` distribution. Those package tests do not by themselves
+certify a multi-node execution profile. Historical cluster evidence remains
+specific to the exact Wheel, Core version, and runtime profile that produced it.
 Kubernetes remains an external substrate managed by KubeRay or another Ray
-platform, not a Tributo profile or control plane. Tributo's distributed
-evidence is the deployment-neutral `cluster` profile on an isolated Docker Ray
-cluster. KubeRay deployment and lifecycle validation are outside the Tributo IT
-scope; users may attach the same workload to an externally provided Ray Jobs
-endpoint.
+platform, not a Tributo profile or control plane.
 
 ## Data
 
@@ -46,16 +52,18 @@ endpoint.
 | Local/S3 Parquet and CSV reads | Verified | Native Ray Data or Daft handle through one Gateway |
 | Local/S3 Iceberg reads | Verified | Built-in bindings use PyIceberg `>=0.11.1,<0.12.0` with `PyArrowFileIO`; Ray may push `row_filter` into the scan, Daft applies it as a lazy residual filter, and empty-table schema is preserved from Iceberg metadata; broader Catalog/delete-file matrix remains gated |
 | Local/S3 Lance reads | Verified | Native Ray Data or Daft table reader; numeric versions and tags are supported, Daft also supports as-of, and Iceberg snapshot references fail closed |
+| Ray Lance scanner options | Verified | Ray Data accepts the validated `batch_size`, positive `batch_readahead`, non-negative `fragment_readahead`, `io_buffer_size`, and `late_materialization` subset as execution options; cluster binary-image conformance passed. Daft rejects them, and they are not a hard memory limit |
 | PostgreSQL structured table reads | Verified | Ray uses a single public SQL read and fails closed on parallel shard requirements; Daft may use native partition hints |
 | ClickHouse/Doris raw SQL | Unsupported | Legacy shapes return a credential-free migration error; use structured table input or execute SQL outside Tributo ingestion |
 | HDFS Parquet/CSV reads | Adapter only | Ray binding exists; real HDFS/JVM/worker gate is pending |
-| ClickHouse reads | Adapter only | Ray uses the separately installed `ray-clickhouse==1.0` package from PyPI and delegates single, physical-partition, integer-range, and bounded Arrow block behavior to it. Real-database Tributo Conformance is still required |
-| Doris reads | Adapter only | Ray routes use locked `ray-doris==1.0`; Daft routes use locked `daft-doris==1.0`; real-database Conformance is still required and tablet planning remains provider/binding-owned |
-| HiveServer2 structured table reads | Alpha, verified | `ProviderSourceConfig(provider="tributo.hive", uri="hive://host:port/database/table")` routes only to the Ray `tributo.ray.hive` Binding and locked `ray-hive==1.0`; Hive 4.2.0 Conformance verifies projection, schema, worker execution, and binary NOSASL transport. Raw SQL, Daft Hive, HTTP, TLS, Kerberos, and Hive writes are outside this contract |
+| ClickHouse reads | Ray filter path verified on one node | Locked `ray-clickhouse==1.1` owns single, physical-partition, integer-range reads and bounded Arrow blocks. ClickHouse 26.8.1.2041 single-node tests verify actual filtered SQL and native output; broader read and multi-node Conformance remain separate |
+| Doris reads | Ray filter path verified on one node; Daft adapter only | Locked `ray-doris==1.3` MySQL/Flight reads passed Doris 4.0.6 single-node filter tests. Tablet planning remains connector-owned; Daft uses `daft-doris==1.1` and retains its separate real-database Conformance requirement |
+| Ray ClickHouse/Doris filter transforms | Restricted exact pushdown verified | Only the supported leading filter prefix is forwarded; original ordinals remain in receipts and unsupported steps retain ordered Ray execution. Integer, boolean, finite Float64 scalar and text equality/IN support is detailed in the [read guide](../data/user-guides/read-data.md); Decimal, Float32, temporal and string ordering comparisons remain residual. Ray 2.59.0 can fail on Unicode residual filters; see the read guide for the known limitation |
+| HiveServer2 structured table reads | Alpha, verified | `ProviderSourceConfig(provider="tributo.hive", uri="hive://host:port/database/table")` routes only to the Ray `tributo.ray.hive` Binding and locked `ray-hive==1.2`; Hive 4.2.0 Conformance verifies projection, schema, worker execution, and binary NOSASL transport. Raw SQL, Daft Hive, HTTP, TLS, Kerberos, and Hive writes are outside this contract |
 | Native ORC file reads | Unsupported | Tributo does not implement an ORC reader. The verified Hive fixture is ORC-backed, but HiveServer2 and `ray-hive` own its SQL execution and decoding; this is not HDFS or file-level ORC support |
 | Third-party ingestion Provider/Binding SPI | Implemented | Installed packages use `tributo.ingestion_providers` plus `tributo.ingestion_bindings`; bad plugins are isolated, duplicate routes never replace built-ins, and Binding selection can constrain filesystem, catalog, and storage format |
 | Lance output | Implemented as a generic ResultSink path | Declared fixed-shape Ray/Arrow tensor columns are strictly validated and normalized to Lance `FixedSizeList`; the user Predictor still owns vector semantics, and the sink does not pool, mathematically normalize embedding values, change dtype, or automatically invoke the separate vector-index workflow |
-| Native bounded writes | Basic local/S3 native round-trips are implemented through `WriteGateway` for Ray/Daft Parquet, CSV, Iceberg, and Lance. The optional Ray ClickHouse binding delegates append-only writes and native row/byte receipts to `ray-clickhouse==1.0`; real-database Tributo Conformance remains required. Ray Lance delegates to locked `lance-ray==0.5.0`/PyLance 9; Daft delegates to `DataFrame.write_lance`. Mode support comes from the selected native Binding capability. Existing-target `CREATE`, missing-target `APPEND`, schema evolution, and empty writes remain provider-owned, are not general Tributo guarantees | Tributo owns control-plane validation only; Ray Data, Daft, or an official native integration owns data-plane writes |
+| Native bounded writes | Basic local/S3 native round-trips are implemented through `WriteGateway` for Ray/Daft Parquet, CSV, Iceberg, and Lance. The optional Ray ClickHouse binding delegates append-only writes and native row/byte receipts to `ray-clickhouse==1.1`; real-database Tributo Conformance remains required. Ray Lance delegates to locked `lance-ray==0.5.0`/PyLance 9; Daft delegates to `DataFrame.write_lance`. Mode support comes from the selected native Binding capability. Existing-target `CREATE`, missing-target `APPEND`, schema evolution, and empty writes remain provider-owned, are not general Tributo guarantees | Tributo owns control-plane validation only; Ray Data, Daft, or an official native integration owns data-plane writes |
 | Custom Hugging Face Predictor | User-provided Ray Data/Jobs extension point | Tokenization, task semantics, output interpretation, pooling, normalization, and metadata remain user-owned |
 | Database inference sinks | Adapter only | `DataWriteResultSink` can route an append-only ClickHouse target through the optional `tributo.ray.clickhouse` write binding. Tributo does not implement a database-specific ResultSink, Distributed-table routing, update-or-insert behavior, or exactly-once semantics. Doris remains an extension point |
 | Ray/Daft transform compiler | Alpha | Portable bounded ETL subset with dual-engine Conformance |
@@ -76,7 +84,9 @@ Algorithms with `native_migration_complete` set are intentionally omitted
 from this Core-generated region. Their descriptors, implementations, and
 runtime evidence are maintained and validated in the official
 [tributo-algorithms repository](https://github.com/jiangxt2/tributo-algorithms),
-which is tested locally rather than installed by Tributo's GitHub CI.
+which runs its own unit and package-conformance CI. Core CI uses fixture
+plugins for its open descriptor and execution contracts and does not install
+the aggregate distribution.
 
 ### Training infrastructure and planned capabilities
 
@@ -89,7 +99,7 @@ which is tested locally rather than installed by Tributo's GitHub CI.
 | Constrained algorithm descriptor SPI | Alpha | Trusted packages from the selected image or a validated Job artifact; no arbitrary dependency resolution, isolation, hot reload, or PluginManager lifecycle |
 | Algorithm Wheel distribution | Alpha | Image Profiles plus code-only `py_modules` Wheels by default; opt-in offline Wheelhouse installs use `--no-index`, an attested manifest, and the existing entry-point registry. No online dependency resolution or untrusted-code sandbox is provided |
 | Graph training | Alpha Core data path | Core provides partitioned Ray graph reads and seed mini-batches for static homogeneous node tasks; no built-in PyG/DGL trainer, and the external GraphSAGE/R-GCN Wheel remains full-batch until separately migrated |
-| X-Learner causal estimation | Alpha, conformance-tested | Binary treatment/outcome, numeric tabular features, deterministic 5-fold cross-fitting over five native Ray Train XGBoost stages, causal report, and batch CATE inference; priority multi-node Gate passed, while the full 27-record Gate remains pending |
+| X-Learner causal estimation | Alpha, conformance-tested | Binary treatment/outcome, numeric tabular features, deterministic 5-fold cross-fitting over five native Ray Train XGBoost stages, causal report, and batch CATE inference; the previously recorded priority multi-node result is version-specific, and Core does not maintain the aggregate Wheel Gate |
 
 The tabular DNN, PU, and XGBoost legacy Trainer implementations remain
 available to Beta compatibility APIs while their native distributed
@@ -170,12 +180,12 @@ tensors; it does not apply DNN/PU preprocessing implicitly.
 
 | Capability | Status | Boundary |
 | --- | --- | --- |
-| Full Tributo runtime image for CPU validation | Alpha, directly buildable | Linux `arm64`/`amd64`, defaulting to the native host architecture; Python 3.12, Ray 2.55.1, locked dependency closure, and all first-party runtime extras including Alpha modules. Linux PyTorch resolution may include transitive CUDA/NVIDIA distributions, but no GPU support is claimed |
-| Custom connector wheelhouse variant | Alpha, optional extension | An external wheelhouse remains available for packages outside the locked connector set, including `ray-clickhouse==1.0` for image builds; it does not change the Tributo lockfile |
+| Full Tributo runtime image for CPU validation | Alpha, CPU gate verified on Linux arm64 | Supports explicit Linux `arm64`/`amd64` targets, defaulting to the native host architecture; native `amd64` execution remains unverified for this source revision. Python 3.12, Ray 2.59.0, locked connector packages and all first-party runtime extras including Alpha modules are locked. Linux PyTorch resolution may include transitive CUDA/NVIDIA distributions, but no GPU support is claimed |
+| Custom connector wheelhouse variant | Alpha, optional extension | An external wheelhouse remains available for packages outside the locked connector set, for optional image extensions; it does not change the Tributo lockfile |
 | Runtime image attestation | Alpha | `manifest.json`, `image-profile.json`, normalized distribution inventory, and sealed `org.tributo.manifest-sha256` label |
-| Runtime image Ray Jobs gate | Alpha, validation gate | Requires a unique two-node Docker Ray cluster on a native host architecture; verifies driver/worker imports, Ray Data, Jobs API submission, and the ClickHouse driver plus v1.0 Doris/Ray Hive connector package presence. `linux/amd64` requires a matching native host |
+| Runtime image Ray Jobs gate | Alpha, validation gate | Requires a unique two-node Docker Ray cluster on a native host architecture; verifies driver/worker imports, Ray Data, Jobs API submission, and the source connector package presence. `linux/amd64` requires a matching native host |
 | GPU runtime image | Not implemented | The Linux dependency closure may contain transitive CUDA/NVIDIA distributions from PyTorch, but no GPU driver, scheduling, NCCL, or GPU compatibility contract has been validated |
-| HiveServer2 Runtime | Alpha, validation gate | `ray-hive==1.0` is locked into the full image and selected by the built-in Ray Hive Binding; the Data Ingestion Gate verifies Hive 4.2.0 on a worker. HDFS and native ORC readers remain outside this runtime contract |
+| HiveServer2 Runtime | Alpha, validation gate | `ray-hive==1.2` is locked into the full image and selected by the built-in Ray Hive Binding; the Data Ingestion Gate verifies Hive 4.2.0 on a worker. HDFS and native ORC readers remain outside this runtime contract |
 
 For symbol-level compatibility promises, consult the
 [API stability inventory](../STABILITY.md).

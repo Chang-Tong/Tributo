@@ -102,7 +102,7 @@ pip, and all relevant dependency Wheels must be present in the Bundle or
 already listed in the image Profile.
 
 The selected image must also contain `pip` in its Ray process environment.
-Ray 2.55.1 creates the `runtime_env.pip` environment by cloning the active
+Ray 2.59.0 creates the `runtime_env.pip` environment by cloning the active
 Python environment; an image built with UV should bootstrap pip during image
 construction (for example, with Python's bundled `ensurepip`) and list its
 version in `ImageProfile.installed_distributions`. This is an image-build
@@ -157,7 +157,7 @@ pip:
     - --no-cache-dir
 ```
 
-`pip_check: true` is a whole-environment health check in Ray 2.55.1's normal
+`pip_check: true` is a whole-environment health check in Ray 2.59.0's normal
 `--system-site-packages` runtime environment; it is not the Wheelhouse
 closure check. Image Profiles should be published only after a clean baseline
 `python -m pip check`. Ray's pip API has no option to ignore selected baseline
@@ -284,7 +284,9 @@ class BinaryLinearRecipe(TorchRecipe):
 
         features = torch.as_tensor(batch["features"])
         targets = torch.as_tensor(batch["label"]).reshape(-1, 1)
-        return TorchBatch(positional=(features,), targets=targets, local_rows=len(targets))
+        return TorchBatch(
+            positional=(features,), targets=targets, local_rows=len(targets)
+        )
 
     def training_step(self, modules, batch, context):
         import torch
@@ -304,7 +306,9 @@ class BinaryLinearRecipe(TorchRecipe):
     def configure_optimizers(self, modules, context):
         import torch
 
-        return TorchOptimizationPlan(torch.optim.Adam(modules["model"].parameters(), lr=1e-3))
+        return TorchOptimizationPlan(
+            torch.optim.Adam(modules["model"].parameters(), lr=1e-3)
+        )
 
     def metric_plan(self, context):
         return TorchMetricPlan({"train_loss": "sum_count"})

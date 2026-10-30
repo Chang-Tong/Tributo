@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.support.runtime_versions import RAY_VERSION
+
 _ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _ROOT / ".github" / "workflows" / "pr-test-suite.yml"
 _MANIFEST = _ROOT / "ci" / "test-suites.json"
@@ -21,23 +23,14 @@ def _inference_suite() -> dict[str, object]:
     )
 
 
-def _distributed_algorithm_suite() -> dict[str, object]:
-    payload = json.loads(_MANIFEST.read_text(encoding="utf-8"))
-    return next(
-        suite
-        for suite in payload["suites"]
-        if suite["id"] == "distributed-algorithm-cluster"
-    )
-
-
 def test_inference_it_versions_are_explicit_and_immutable() -> None:
     versions = _VERSIONS.read_text(encoding="utf-8")
 
-    assert "rayproject/ray:2.55.1-py312@sha256:" in versions
+    assert f"rayproject/ray:{RAY_VERSION}-py312@sha256:" in versions
     assert "TRIBUTO_INFERENCE_UV_IMAGE" not in versions
     assert "minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:" in versions
     for expected in (
-        "TRIBUTO_EXPECTED_RAY_VERSION=2.55.1",
+        f"TRIBUTO_EXPECTED_RAY_VERSION={RAY_VERSION}",
         "TRIBUTO_EXPECTED_MLFLOW_VERSION=2.22.5",
         "TRIBUTO_EXPECTED_ONNX_VERSION=1.22.0",
         "TRIBUTO_EXPECTED_ONNXRUNTIME_VERSION=1.28.0",
@@ -102,7 +95,6 @@ def test_inference_runner_always_performs_exact_scoped_cleanup() -> None:
 def test_inference_evidence_is_external_and_absent_from_ci() -> None:
     workflow = _WORKFLOW.read_text(encoding="utf-8")
     suite = _inference_suite()
-    distributed = _distributed_algorithm_suite()
     runner = _RUNNER.read_text(encoding="utf-8")
 
     assert suite["tier"] == "manual_external"
@@ -110,11 +102,6 @@ def test_inference_evidence_is_external_and_absent_from_ci() -> None:
     assert suite["entrypoint"] == ["./scripts/run_inference_it.sh"]
     assert "tests/integration/test_lance_result_sink_ray.py" in suite["test_paths"]
     assert "tests/integration/test_inference_ray_jobs.py" not in runner
-    assert (
-        "tests/training/jobs/official_algorithm_gate_job.py"
-        in distributed["test_paths"]
-    )
-    assert "tests/training/test_dnn_pu_training.py" in distributed["test_paths"]
     assert "inference-distributed:" not in workflow
     assert "run_inference_it.sh" not in workflow
 

@@ -7,6 +7,9 @@ import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+from tests.support.runtime_versions import RAY_VERSION
 from tributo.algorithms.api import (
     AlgorithmSupportEvidence,
     AlgorithmSupportEvidenceRegistry,
@@ -23,6 +26,60 @@ from tributo.training.registry import TrainingAlgorithmRegistry
 from .conftest import map_reduce_registration
 
 _WHEEL_DIGEST = "e" * 64
+
+
+@pytest.mark.parametrize(
+    ("ray_version", "accepted"),
+    [("2.59.0", True), ("2.55.1", False), ("3.0.0.dev0", False)],
+)
+def test_default_runtime_evidence_requires_audited_ray(
+    ray_version: str, accepted: bool
+) -> None:
+    descriptor = _descriptor()
+    evidence = replace(_evidence(descriptor), ray_version=ray_version)
+
+    assert evidence.matches(descriptor, wheel_sha256=_WHEEL_DIGEST) is accepted
+
+
+def test_explicit_algorithm_runtime_requirement_is_not_widened() -> None:
+    descriptor = _descriptor()
+    environment = replace(
+        descriptor.registration.environment, dependencies=("ray==2.55.1",)
+    )
+    descriptor = replace(
+        descriptor,
+        registration=replace(descriptor.registration, environment=environment),
+    )
+
+    assert (
+        _evidence(descriptor).matches(descriptor, wheel_sha256=_WHEEL_DIGEST) is False
+    )
+    historical = replace(_evidence(descriptor), ray_version="2.55.1")
+    assert historical.matches(descriptor, wheel_sha256=_WHEEL_DIGEST) is True
+
+
+@pytest.mark.parametrize(
+    ("core_version", "version_spec", "accepted"),
+    [
+        ("1.1.0", ">=1,<2", True),
+        ("1.2.0.dev0", ">=1,<2", True),
+        ("1.2.0.dev0", ">=1,<1.2", False),
+        ("1.2.0.dev0", ">=1.2", False),
+        ("1.2.0.dev0", "==1.1.0", False),
+        ("1.2.0.dev0", ">=1,<2,!=1.2.*", False),
+        ("1.2.0rc1", ">=1,<2", False),
+        ("2.0.0.dev0", ">=1,<2", False),
+    ],
+)
+def test_support_evidence_core_development_version_range(
+    core_version: str, version_spec: str, accepted: bool
+) -> None:
+    descriptor = replace(_descriptor(), tributo_version_spec=version_spec)
+    evidence = replace(_evidence(descriptor), tributo_version=core_version)
+
+    assert evidence.matches(descriptor, wheel_sha256=_WHEEL_DIGEST) is accepted
+    assert evidence.tributo_version == core_version
+    assert evidence.matches(descriptor, wheel_sha256="f" * 64) is False
 
 
 def _binding(contract_id: str, digest: str) -> ContractBinding:
@@ -91,7 +148,7 @@ def _evidence(
         distributed_semantics=DistributedSemantics.SINGLE_MODEL_DISTRIBUTED,
         execution_profile=ExecutionProfile.CLUSTER,
         tributo_version="1.0.0",
-        ray_version="2.55.1",
+        ray_version=RAY_VERSION,
         python_version="3.12",
         image_profile="tests.cpu",
         framework_version="tests-1.0",
