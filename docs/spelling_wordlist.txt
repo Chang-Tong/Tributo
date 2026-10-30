@@ -39,6 +39,7 @@ canonical
 checkpoint
 checkpoints
 classvars
+CI
 CLI
 ClickHouse
 clickhouse

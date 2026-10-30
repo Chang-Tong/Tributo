@@ -403,8 +403,8 @@ class DistributedCounter(MapReduceAlgorithm):
 
 The `multinomial_nb` built-in is a Bundle-producing reference implementation.
 The independent package under `tests/fixtures/distributed_algorithm_plugin`
-directly implements the same public interface without importing a Tributo
-builtin. Every Ray map
+directly implements the same public interface without importing a built-in
+Tributo algorithm. Every Ray map
 task reads one exclusive shard, returns only bounded sufficient statistics,
 and the runtime constructs a balanced reduction tree. The finalizer always
 runs, including for fit-only execution. A sequential `partial_fit` loop or a
