@@ -32,6 +32,12 @@ jobs:
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
 
+      - name: Resolve repository-owned runtime registry
+        id: registry
+        run: |
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          printf 'image=ghcr.io/%s/tributo-it-runtime\n' "$owner" >> "$GITHUB_OUTPUT"
+
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: "0.11.23"
@@ -49,11 +55,12 @@ jobs:
 
       - name: Publish immutable runtime when missing
         env:
-          TRIBUTO_IT_BUILDX_CACHE_FROM: type=registry,ref=ghcr.io/jiangxt2/tributo-it-runtime:buildcache-data-ingestion
-          TRIBUTO_IT_BUILDX_CACHE_TO: type=registry,ref=ghcr.io/jiangxt2/tributo-it-runtime:buildcache-data-ingestion,mode=max
+          TRIBUTO_IT_RUNTIME_REGISTRY: ${{ steps.registry.outputs.image }}
+          TRIBUTO_IT_BUILDX_CACHE_FROM: type=registry,ref=${{ steps.registry.outputs.image }}:buildcache-data-ingestion
+          TRIBUTO_IT_BUILDX_CACHE_TO: type=registry,ref=${{ steps.registry.outputs.image }}:buildcache-data-ingestion,mode=max
         run: >-
           uv run --no-project --python 3.12 python tools/tributo_it.py publish-runtime
           --profile data-ingestion
           --platform linux/amd64
           --build-input-mode canonical
-          --registry ghcr.io/jiangxt2/tributo-it-runtime
+          --registry "$TRIBUTO_IT_RUNTIME_REGISTRY"

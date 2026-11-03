@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tests.support.runtime_versions import DAFT_VERSION, RAY_VERSION
 from tools import tributo_it
@@ -1222,6 +1223,44 @@ def test_runtime_image_workflow_selects_canonical_build_inputs() -> None:
     )[0]
     assert '      - "tools/tributo-runtime-full.json"' in trigger_paths
     assert '      - "tools/runtime_image_contract.py"' in trigger_paths
+
+
+@pytest.mark.parametrize("owner", ["Chang-Tong", "jiangxt2"])
+def test_runtime_publish_targets_the_current_repository_owner(
+    tmp_path: Path, owner: str
+) -> None:
+    path = (
+        Path(__file__).resolve().parents[2] / ".github/workflows/it-runtime-image.yml"
+    )
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["publish-data-ingestion-runtime"]["steps"]
+    resolver = next(step for step in steps if step.get("id") == "registry")
+    output = tmp_path / "github-output"
+    subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", resolver["run"]],
+        env={
+            **os.environ,
+            "GITHUB_REPOSITORY_OWNER": owner,
+            "GITHUB_OUTPUT": str(output),
+        },
+        check=True,
+        timeout=10,
+    )
+    image = output.read_text(encoding="utf-8").strip().removeprefix("image=")
+    assert image == f"ghcr.io/{owner.lower()}/tributo-it-runtime"
+    publish = next(step for step in steps if "publish-runtime" in step.get("run", ""))
+    environment = {
+        key: value.replace("${{ steps.registry.outputs.image }}", image)
+        for key, value in publish["env"].items()
+    }
+    assert environment["TRIBUTO_IT_RUNTIME_REGISTRY"] == image
+    assert environment["TRIBUTO_IT_BUILDX_CACHE_FROM"] == (
+        f"type=registry,ref={image}:buildcache-data-ingestion"
+    )
+    assert environment["TRIBUTO_IT_BUILDX_CACHE_TO"] == (
+        f"type=registry,ref={image}:buildcache-data-ingestion,mode=max"
+    )
+    assert '--registry "$TRIBUTO_IT_RUNTIME_REGISTRY"' in publish["run"]
 
 
 def test_container_states_capture_ownership_diagnostics(
