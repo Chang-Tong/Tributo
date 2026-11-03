@@ -17,7 +17,10 @@ from typing import Any, Optional
 import click
 
 from tributo import JobConfig
-from tributo._common import DEFAULT_DASHBOARD_URL, configure_logging
+from tributo._common import DEFAULT_DASHBOARD_URL
+from tributo._common.logging import bootstrap_logging
+from tributo._common.reporting.config import ReportingError
+from tributo._common.reporting.session import session_scope
 from tributo.exceptions import (
     JobConfigurationError,
     JobExecutionError,
@@ -38,6 +41,13 @@ logger = logging.getLogger(__name__)
 
 class _LazyTributoGroup(click.Group):
     """Load the broker command module only when that command is selected."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            with session_scope():
+                return super().invoke(ctx)
+        except ReportingError as exc:
+            raise click.ClickException(str(exc)) from None
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
         if cmd_name == "broker":
@@ -82,7 +92,7 @@ class _LazyTributoGroup(click.Group):
 @click.version_option(package_name="tributo")
 def main():
     """Tributo: Unified framework for submitting Ray Jobs."""
-    configure_logging(log_format="text")
+    bootstrap_logging(default_format="text")
 
 
 @main.command()

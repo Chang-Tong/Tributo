@@ -472,6 +472,38 @@
       "rationale": "Owned single-node real database proof of filter forwarding and native source results; no external credentials or multi-node cluster."
     },
     {
+      "id": "log-reporting-cluster",
+      "owner": "core",
+      "domain": "core",
+      "tier": "manual_external",
+      "workflow": "external",
+      "owns_tests": true,
+      "entrypoint": ["python", "-m", "tools.reporting_it"],
+      "args": [],
+      "extras": ["dev"],
+      "test_paths": ["tests/integrations/test_log_reporting.py"],
+      "trigger_domains": [],
+      "trigger_paths": [
+        "src/tributo/_common/reporting/**", "src/tributo/observability.py",
+        "src/tributo/integrations/algorithm_runtimes/ray_task.py",
+        "src/tributo/integrations/algorithm_runtimes/ray_train_torch.py",
+        "src/tributo/inference/kernel.py", "src/tributo/training/tune_runner.py",
+        "src/tributo/serving/streaming_deployment.py",
+        "tools/reporting_it.py", "tools/reporting-collector.json",
+        "tools/build_reporting_collector.py", "tests/integrations/reporting*.py",
+        "tests/integrations/test_log_reporting.py",
+        "tests/integrations/docker-compose.log-reporting.yml",
+        ".github/workflows/log-reporting-e2e.yml",
+        "tests/integrations/runtime-profiles.json", "pyproject.toml", "uv.lock"
+      ],
+      "requires": ["docker", "multi_node_ray", "doris"],
+      "budget_seconds": 1800,
+      "ci_allowed": false,
+      "forbid_skips": true,
+      "log_contract": "Explicit --log-dir: tests.log, junit.xml, evidence.jsonl, versions.json, cleanup.log, result.json",
+      "rationale": "Requires a verified platform-matching Collector and owned Doris/Ray services. The dedicated log-reporting-e2e workflow permits explicit workflow_dispatch only; automatic CI selection remains disabled."
+    },
+    {
       "id": "data-ingestion-cluster",
       "owner": "data",
       "domain": "data",
@@ -890,7 +922,7 @@
       "tier": "manual_external",
       "workflow": "external",
       "owns_tests": true,
-      "entrypoint": [".venv/bin/python", "-m", "pytest"],
+      "entrypoint": ["uv", "run", "--locked", "--no-sync", "python", "-m", "pytest"],
       "args": [
         "tests/integration/test_ray_runtime_env.py",
         "-o",
@@ -898,22 +930,29 @@
         "-m",
         "ray_runtime_env and manual_it"
       ],
-      "extras": ["dev"],
+      "extras": ["dev", "model-export-torch"],
       "test_paths": ["tests/integration/test_ray_runtime_env.py"],
       "trigger_domains": [],
       "trigger_paths": [
         "src/tributo/_common/runtime_env.py",
+        "src/tributo/_common/logging*.py",
+        "src/tributo/_common/worker_logging.py",
+        "src/tributo/_common/serve_utils.py",
+        "src/tributo/algorithms/core/runtime.py",
+        "src/tributo/runtime_providers.py",
+        "src/tributo/inference/kernel.py",
+        "src/tributo/integrations/algorithm_runtimes/ray_train_torch.py",
         "src/tributo/job.py",
         "tests/integration/test_ray_runtime_env.py",
         "pyproject.toml",
         "uv.lock"
       ],
-      "requires": ["local_ray_worker", "runtime_environment"],
+      "requires": ["local_ray_worker", "runtime_environment", "ray_jobs", "torch"],
       "budget_seconds": 900,
       "ci_allowed": false,
       "forbid_skips": true,
-      "log_contract": "pytest output with the resolved worker environment",
-      "rationale": "Worker runtime-environment propagation is process-level evidence and is kept outside CI."
+      "log_contract": "pytest and owned Ray Jobs output with physical worker setup, rank failures, and runtime shutdown",
+      "rationale": "Runtime and logging propagation require owned Ray Jobs and physical workers; no Dataset action or model download is used."
     },
     {
       "id": "quarantine-mlflow-registry",

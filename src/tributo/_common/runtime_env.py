@@ -9,9 +9,12 @@ unrelated environments.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tributo._common.logging_policy import forward_logging_env
+from tributo._common.reporting.config import KNOWN_ENV
 from tributo.util.annotations import DeveloperAPI
 
 logger = logging.getLogger(__name__)
@@ -227,10 +230,18 @@ def build_runtime_env(
         merged_env_vars = artifact_patch["env_vars"]
         runtime_env["env_vars"] = merged_env_vars
 
+    merged_env_vars = forward_logging_env(merged_env_vars)
+    # Forward configuration for direct SDK submitters too; install setup hooks
+    # only after logging composition, at the submission/driver boundary.
+    for key in KNOWN_ENV:
+        if key not in merged_env_vars and key in os.environ:
+            merged_env_vars[key] = os.environ[key]
+    if merged_env_vars:
+        runtime_env["env_vars"] = merged_env_vars
     logger.debug(
-        "Built runtime_env: py_module_count=%d, has_pip=%s, env_var_keys=%s",
+        "Built runtime_env: py_module_count=%d, has_pip=%s, env_var_count=%d",
         len(runtime_env["py_modules"]),
         "pip" in runtime_env,
-        sorted(merged_env_vars),
+        len(merged_env_vars),
     )
     return runtime_env
