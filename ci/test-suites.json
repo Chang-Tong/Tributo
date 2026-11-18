@@ -149,6 +149,7 @@
       "owns_tests": true,
       "entrypoint": ["python", "-m", "pytest"],
       "args": [
+        "tests/algorithms/test_ray_data_config.py",
         "tests/integration/test_algorithm_distribution_boundary.py",
         "tests/integration/test_export_helpers.py",
         "tests/integration/test_it_component_versions.py",
@@ -160,6 +161,7 @@
       ],
       "extras": ["dev"],
       "test_paths": [
+        "tests/algorithms/test_ray_data_config.py",
         "tests/integration/test_algorithm_distribution_boundary.py",
         "tests/integration/test_export_helpers.py",
         "tests/integration/test_it_component_versions.py",
@@ -177,7 +179,7 @@
       "forbid_skips": true,
       "markers": ["ci_safe"],
       "log_contract": "pytest terminal output; skips and missing JUnit evidence fail the suite",
-      "rationale": "Dedicated bounded shard for integration-named modules that exercise local contracts without external infrastructure."
+      "rationale": "Local runtime and integration contracts, including exact Ray Train shard assignment."
     },
     {
       "id": "causal-dependency-contract",

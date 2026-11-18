@@ -21,6 +21,7 @@ from tributo._common.runtime_versions import (
 from tributo._common.runtime_versions import (
     SUPPORTED_RAY_VERSION as RAY_ENGINE_VERSION,
 )
+from tributo._common.runtime_versions import ray_clickhouse_engine_version
 from tributo.data.contracts.handles import DaftDataFrameHandle, RayDataHandle
 from tributo.data.contracts.modes import WriteMode
 from tributo.data.writing._native import (
@@ -63,7 +64,11 @@ def _ray_descriptor(
         engine_id="tributo.ray_data",
         target_kind=target_kind,
         binding_id=binding_id,
-        engine_version=RAY_ENGINE_VERSION,
+        engine_version=(
+            ray_clickhouse_engine_version()
+            if target_kind == "clickhouse"
+            else RAY_ENGINE_VERSION
+        ),
         dependency_distributions=dependencies,
         capabilities=capabilities,
         installation_hint=(
