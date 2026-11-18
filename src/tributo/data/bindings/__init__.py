@@ -9,7 +9,11 @@ from collections.abc import Callable
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-from tributo._common.runtime_versions import DAFT_SQL_VERSION_SPEC, RAY_VERSION_SPEC
+from tributo._common.runtime_versions import (
+    DAFT_SQL_VERSION_SPEC,
+    RAY_VERSION_SPEC,
+    ray_clickhouse_engine_version,
+)
 from tributo.data.engine_binding import (
     BindingDescriptor,
     BindingKey,
@@ -300,7 +304,7 @@ def _ray_clickhouse_descriptor() -> BindingDescriptor:
         ),
         distribution_name="ray-clickhouse",
         distribution_version=_require_distribution_version("ray-clickhouse"),
-        engine_version_spec=_RAY_VERSION_SPEC,
+        engine_version_spec=f"=={ray_clickhouse_engine_version()}",
         dependency_distributions=("clickhouse-connect", "pyarrow"),
         supported_read_hints=frozenset(
             {
@@ -666,7 +670,7 @@ def default_engine_bindings() -> EngineBindings:
                     "ray_clickhouse.ray.clickhouse",
                 ),
                 "ray",
-                _RAY_VERSION_SPEC,
+                f"=={ray_clickhouse_engine_version()}",
                 _RAY_CLICKHOUSE_INSTALL_HINT,
                 None,
                 (

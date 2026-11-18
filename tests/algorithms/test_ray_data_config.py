@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import ray
 from ray.data import ExecutionOptions, ExecutionResources
 from ray.data.context import DataContext
 
@@ -40,12 +41,12 @@ def test_exact_coverage_uses_public_unequal_streaming_split_and_locality(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dataset = _Dataset()
-    config = ExactCoverageDataConfig()
     options = ExecutionOptions(
         exclude_resources=ExecutionResources(cpu=2), preserve_order=True
     )
     monkeypatch.setattr(DataContext.get_current(), "execution_options", options)
 
+    config = ExactCoverageDataConfig()
     result = config.configure(
         {"train": dataset},
         world_size=2,
@@ -89,10 +90,9 @@ def test_exact_coverage_can_replicate_declared_small_datasets() -> None:
 
 
 def test_exact_coverage_compatibility_is_locked_to_audited_ray() -> None:
-    import ray
     from ray.train import DataConfig
 
-    assert ray.__version__ == "2.59.0"
+    assert ray.__version__ in {"2.55.1", "2.59.0"}
     assert "equal=True" in inspect.getsource(DataConfig.configure)
     source = inspect.getsource(ExactCoverageDataConfig.configure)
     assert "equal=False" in source
@@ -137,6 +137,10 @@ def test_exact_coverage_copies_user_options_without_aliasing(
 def test_exact_coverage_uses_current_context_for_unspecified_dataset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    initial = ExecutionOptions(
+        preserve_order=True, exclude_resources=ExecutionResources(cpu=1)
+    )
+    monkeypatch.setattr(DataContext.get_current(), "execution_options", initial)
     config = ExactCoverageDataConfig(
         execution_options={"train": ExecutionOptions(preserve_order=False)}
     )
@@ -155,4 +159,7 @@ def test_exact_coverage_uses_current_context_for_unspecified_dataset(
 
     assert train.context.execution_options.preserve_order is False
     assert validation.context.execution_options.preserve_order is True
-    assert validation.context.execution_options.exclude_resources.cpu == 2
+    # 2.55 snapshots default options at construction. 2.59 resolves them at assignment.
+    assert validation.context.execution_options.exclude_resources.cpu == (
+        1 if ray.__version__ == "2.55.1" else 2
+    )

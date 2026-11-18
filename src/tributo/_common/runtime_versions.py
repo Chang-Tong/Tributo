@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 _BASELINE = json.loads(Path(__file__).with_suffix(".json").read_text(encoding="utf-8"))
@@ -19,3 +20,13 @@ SUPPORTED_RAY_VERSION = _version("ray")
 SUPPORTED_DAFT_VERSION = _version("daft")
 RAY_VERSION_SPEC = f"=={SUPPORTED_RAY_VERSION}"
 DAFT_SQL_VERSION_SPEC = _version("daft_sql_spec")
+
+
+def ray_clickhouse_engine_version() -> str:
+    """Select the audited ClickHouse binding for the installed Ray runtime."""
+    try:
+        if version("ray") == "2.55.1":
+            return "2.55.1"
+    except PackageNotFoundError:
+        pass
+    return SUPPORTED_RAY_VERSION
